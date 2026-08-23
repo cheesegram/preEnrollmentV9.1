@@ -345,7 +345,9 @@ export async function enrollFromApplicant(req, res) {
 
     // Build section groups for auto-sectioning
     const sectionGroups = await buildSectionGroups();
-    const tempStudent = { ...applicant, year: 1, semester: "1st", status: "Block" };
+    const enrollmentYear = normalizeText(applicant.year);
+    const enrollmentSemester = normalizeSemester(applicant.semester);
+    const tempStudent = { ...applicant, year: enrollmentYear, semester: enrollmentSemester, status: "Block" };
     const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
 
     // Build the student object — normalize all fields from applicant to camelCase
@@ -355,8 +357,8 @@ export async function enrollFromApplicant(req, res) {
       ...normalizedApplicant,
       studentNumber,
       status: "Block",
-      year: "1",
-      semester: "1st",
+      year: enrollmentYear,
+      semester: enrollmentSemester,
       section: chosenSection.section,
       createdAt: now,
       updatedAt: now,
@@ -448,7 +450,9 @@ export async function batchEnrollPreview(req, res) {
         continue;
       }
 
-      const tempStudent = { ...applicant, year: 1, semester: "1st", status: "Block" };
+      const enrollmentYear = normalizeText(applicant.year);
+      const enrollmentSemester = normalizeSemester(applicant.semester);
+      const tempStudent = { ...applicant, year: enrollmentYear, semester: enrollmentSemester, status: "Block" };
       const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
       addStudentToSectionState(chosenSection, tempStudent.status);
 
@@ -457,8 +461,8 @@ export async function batchEnrollPreview(req, res) {
         applicant_name: `${String(applicant.firstName ?? "").trim()} ${String(applicant.lastName ?? "").trim()}`.trim() || "Unknown",
         studentNumber,
         assigned_section: chosenSection.section,
-        assigned_year: "1",
-        assigned_semester: "1st",
+        assigned_year: chosenSection.year,
+        assigned_semester: chosenSection.semester,
       });
     }
 
@@ -500,7 +504,9 @@ export async function batchEnrollFromApplicants(req, res) {
           continue;
         }
 
-        const tempStudent = { ...applicant, year: 1, semester: "1st", status: "Block" };
+        const enrollmentYear = normalizeText(applicant.year);
+        const enrollmentSemester = normalizeSemester(applicant.semester);
+        const tempStudent = { ...applicant, year: enrollmentYear, semester: enrollmentSemester, status: "Block" };
         const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
 
         // Build the student object — normalize all fields from applicant to camelCase
@@ -510,8 +516,8 @@ export async function batchEnrollFromApplicants(req, res) {
           ...normalizedApplicant,
           studentNumber,
           status: "Block",
-          year: "1",
-          semester: "1st",
+          year: enrollmentYear,
+          semester: enrollmentSemester,
           section: chosenSection.section,
           createdAt: now,
           updatedAt: now,

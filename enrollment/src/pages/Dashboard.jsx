@@ -989,7 +989,7 @@ function Dashboard() {
                                                                 <td className="px-4 py-3 text-center">
                                                                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
                                                                         <i className="fa-solid fa-layer-group text-[0.6rem]" />
-                                                                        Section {p.assigned_section}
+                                                                        Section {p.assigned_year ?? selectedSectionGroup.year}-{p.assigned_section}
                                                                     </span>
                                                                 </td>
                                                             </tr>

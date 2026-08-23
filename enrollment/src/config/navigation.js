@@ -27,6 +27,13 @@ export const navigationItems = [
     icon: "fa-solid fa-users-between-lines",
     description: "Class capacity",
   },
+  {
+    label: "Schedules",
+    shortLabel: "Schedules",
+    path: "/schedules",
+    icon: "fa-solid fa-calendar-days",
+    description: "Section schedules",
+  },
 ];
 
 export function getNavigationItem(pathname) {

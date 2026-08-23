@@ -199,25 +199,26 @@ export async function getApplicantsForEnrollment(req, res) {
     const Applicant = getDbModel("Applicant", "applicants");
     // Only fetch applicants that have section, year, semester AND status === "Confirmed"
     const applicants = await Applicant.find(
-      {
-        $and: [
-          { section: { $exists: true, $ne: null, $ne: "" } },
-          { year: { $exists: true, $ne: null, $ne: "" } },
-          { semester: { $exists: true, $ne: null, $ne: "" } },
-          { status: "Confirmed" },
-        ],
-      },
-      {
-        _id: 0,
-        applicantId: 1,
-        firstName: 1,
-        lastName: 1,
-        status: 1,
-        year: 1,
-        section: 1,
-        semester: 1,
-      }
-    ).lean();
+       {
+         $and: [
+           { section: { $exists: true, $ne: null, $ne: "" } },
+           { year: { $exists: true, $ne: null, $ne: "" } },
+           { semester: { $exists: true, $ne: null, $ne: "" } },
+           { status: "Confirmed" },
+         ],
+       },
+       {
+         _id: 0,
+         applicantId: 1,
+         firstName: 1,
+         lastName: 1,
+         status: 1,
+         year: 1,
+         section: 1,
+         semester: 1,
+         isIrregular: 1,
+       }
+     ).lean();
 
     const formattedApplicants = applicants.map((applicant) => ({
       applicantID: String(applicant.applicantId ?? "").trim(),
@@ -226,6 +227,7 @@ export async function getApplicantsForEnrollment(req, res) {
       year: String(applicant.year ?? "").trim(),
       section: String(applicant.section ?? "").trim(),
       semester: String(applicant.semester ?? "").trim(),
+      isIrregular: Boolean(applicant.isIrregular),
     })).filter((a) => a.applicantID || a.applicant_name || a.status);
 
     res.status(200).json(formattedApplicants);

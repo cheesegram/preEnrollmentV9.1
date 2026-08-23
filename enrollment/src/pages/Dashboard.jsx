@@ -1057,7 +1057,7 @@ function Dashboard() {
                                                     <tr key={`${applicant.applicantID || 'applicant'}-${index}`} className="hover:bg-gray-50/80 transition-colors">
                                                         <td className="px-6 py-4 font-medium text-gray-900">{applicant.applicantID || '-'}</td>
                                                         <td className="px-6 py-4 text-gray-800">{applicant.applicant_name || '-'}</td>
-                                                        <td className="px-6 py-4 text-center text-gray-700">{applicant.status || '-'}</td>
+                                                        <td className="px-6 py-4 text-center text-gray-700">{applicant.isIrregular === true ? "Confirmed | Irregular" : (applicant.status || '-')}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>

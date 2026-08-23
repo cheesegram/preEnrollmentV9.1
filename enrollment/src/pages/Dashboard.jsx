@@ -676,6 +676,63 @@ function Dashboard() {
         !sectionExportOpen &&
         !exportFormatOpen;
 
+    const getAssignedSectionsForPreview = (placement) => {
+        const sectionsList = [];
+        const seen = new Map();
+        const fallbackYear = String(placement?.assigned_year ?? selectedSectionGroup?.year ?? "").trim();
+
+        const pushSection = (yearValue, sectionValue, isMain = false) => {
+            const section = String(sectionValue ?? "").trim();
+            if (!section) return;
+            const year = String(yearValue ?? "").trim() || fallbackYear;
+            const key = `${year}::${section.toUpperCase()}`;
+
+            if (seen.has(key)) {
+                const existingIndex = seen.get(key);
+                if (isMain) sectionsList[existingIndex].isMain = true;
+                return;
+            }
+
+            seen.set(key, sectionsList.length);
+            sectionsList.push({ year, section, isMain });
+        };
+
+        const explicitAssignedSections = Array.isArray(placement?.assigned_sections)
+            ? placement.assigned_sections
+            : [];
+
+        if (explicitAssignedSections.length > 0) {
+            explicitAssignedSections.forEach((entry, index) => {
+                pushSection(
+                    entry?.year,
+                    entry?.section,
+                    Boolean(entry?.isMain) || index === 0
+                );
+            });
+        } else {
+            pushSection(placement?.assigned_year, placement?.assigned_section, true);
+
+            const irregularSections = Array.isArray(placement?.irregularSection)
+                ? placement.irregularSection
+                : [];
+            const irregularYears = Array.isArray(placement?.irregularYear)
+                ? placement.irregularYear
+                : [];
+
+            irregularSections.forEach((sectionName, index) => {
+                const indexedYear = irregularYears[index];
+                const sharedYear = irregularYears.length === 1 ? irregularYears[0] : undefined;
+                pushSection(indexedYear ?? sharedYear, sectionName, false);
+            });
+        }
+
+        if (sectionsList.length > 0 && sectionsList.every((entry) => !entry.isMain)) {
+            sectionsList[0].isMain = true;
+        }
+
+        return sectionsList;
+    };
+
     return (
         <>
             <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-8 p-4 sm:p-6 lg:p-8">
@@ -987,10 +1044,25 @@ function Dashboard() {
                                                                 <td className="px-4 py-3 font-medium text-gray-900">{p.applicantID}</td>
                                                                 <td className="px-4 py-3 text-gray-800">{p.applicant_name}</td>
                                                                 <td className="px-4 py-3 text-center">
-                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                                                                        <i className="fa-solid fa-layer-group text-[0.6rem]" />
-                                                                        Section {p.assigned_year ?? selectedSectionGroup.year}-{p.assigned_section}
-                                                                    </span>
+                                                                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                                                        {getAssignedSectionsForPreview(p).map((sectionEntry, sectionIndex, allSections) => (
+                                                                            <React.Fragment key={`${p.applicantID || idx}-${sectionEntry.year}-${sectionEntry.section}-${sectionIndex}`}>
+                                                                                <span
+                                                                                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold border ${
+                                                                                        sectionEntry.isMain
+                                                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                                                            : "bg-red-50 text-red-700 border-red-200"
+                                                                                    }`}
+                                                                                >
+                                                                                    <i className="fa-solid fa-layer-group text-[0.6rem]" />
+                                                                                    Section {sectionEntry.year || p.assigned_year || selectedSectionGroup.year}-{sectionEntry.section}
+                                                                                </span>
+                                                                                {sectionIndex < allSections.length - 1 && (
+                                                                                    <span className="px-0.5 text-xs font-bold text-gray-400">|</span>
+                                                                                )}
+                                                                            </React.Fragment>
+                                                                        ))}
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))}

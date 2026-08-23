@@ -2,12 +2,13 @@ import Student from "../models/Student.js";
 import Section from "../models/Section.js";
 import mongoose from "mongoose";
 import {
-  DEFAULT_TOTAL_CAPACITY,
+  DEFAULT_SECTION_CAPACITIES,
   addStudentToSectionState,
   createSectionState,
   getSectionStatus,
   normalizeSectionName,
   normalizeSemester,
+  resolveDefaultSectionCapacities,
   syncSectionFromStudents,
 } from "../services/sectionService.js";
 
@@ -124,7 +125,7 @@ function ensureSectionState(sectionGroups, year, semester, sectionName) {
 
   let section = group.find((entry) => normalizeSectionName(entry.section) === normalizedSection);
   if (!section) {
-    const sourceSection = group[0] ?? null;
+    const sourceSection = group[0] ?? sectionGroups.defaultSourceSection ?? null;
     section = createSectionState({
       year: normalizedYear,
       semester: normalizedSemester,
@@ -390,6 +391,11 @@ async function persistAdditionalIrregularPlacements({ student, irregularMeta }) 
       semester: normalizeSemester(placement.semester),
     };
 
+    const capacities = await resolveDefaultSectionCapacities({
+      year: filter.year,
+      semester: filter.semester,
+    });
+
     const sectionAfterIncrement = await Section.findOneAndUpdate(
       filter,
       {
@@ -397,9 +403,9 @@ async function persistAdditionalIrregularPlacements({ student, irregularMeta }) 
           ...filter,
           blockCount: 0,
           irregularCount: 0,
-          blockCapacity: DEFAULT_TOTAL_CAPACITY * 0.9,
-          irregularCapacity: DEFAULT_TOTAL_CAPACITY * 0.1,
-          totalCapacity: DEFAULT_TOTAL_CAPACITY,
+          blockCapacity: capacities.blockCapacity,
+          irregularCapacity: capacities.irregularCapacity,
+          totalCapacity: capacities.totalCapacity,
         },
         $inc: { irregularCount: 1 },
       },
@@ -409,7 +415,7 @@ async function persistAdditionalIrregularPlacements({ student, irregularMeta }) 
     const status = getSectionStatus(
       Number(sectionAfterIncrement?.blockCount ?? 0),
       Number(sectionAfterIncrement?.irregularCount ?? 0),
-      Number(sectionAfterIncrement?.totalCapacity ?? DEFAULT_TOTAL_CAPACITY)
+      Number(sectionAfterIncrement?.totalCapacity ?? capacities.totalCapacity)
     );
 
     await Section.updateOne(filter, { $set: { status } });
@@ -449,9 +455,9 @@ function getNextSectionName(usedNames) {
 
 function sectionHasCapacityForStudent(section, student) {
   if (isIrregularStatus(student.status)) {
-    return Number(section?.irregularCount ?? 0) < Number(section?.irregularCapacity ?? DEFAULT_TOTAL_CAPACITY * 0.1);
+    return Number(section?.irregularCount ?? 0) < Number(section?.irregularCapacity ?? DEFAULT_SECTION_CAPACITIES.irregularCapacity);
   }
-  return Number(section?.blockCount ?? 0) < Number(section?.blockCapacity ?? DEFAULT_TOTAL_CAPACITY * 0.9);
+  return Number(section?.blockCount ?? 0) < Number(section?.blockCapacity ?? DEFAULT_SECTION_CAPACITIES.blockCapacity);
 }
 
 function sortSectionsByAge(left, right) {
@@ -479,7 +485,7 @@ function chooseSectionForStudent(sectionGroups, student) {
   const availableSection = orderedSections.find((section) => sectionHasCapacityForStudent(section, student));
   if (availableSection) return availableSection;
   const usedNames = new Set(groupSections.map((section) => normalizeSectionName(section.section)).filter(Boolean));
-  const sourceSection = orderedSections[0] ?? null;
+  const sourceSection = orderedSections[0] ?? sectionGroups.defaultSourceSection ?? null;
   const nextSection = createSectionState({ year, semester, section: getNextSectionName(usedNames), sourceSection });
   groupSections.push(nextSection);
   return nextSection;
@@ -491,6 +497,13 @@ function chooseSectionForStudent(sectionGroups, student) {
 async function buildSectionGroups() {
   const existingSections = await Section.find({}).lean();
   const sectionGroups = new Map();
+  const defaultCapacities = await resolveDefaultSectionCapacities();
+  sectionGroups.defaultSourceSection = {
+    blockCapacity: defaultCapacities.blockCapacity,
+    irregularCapacity: defaultCapacities.irregularCapacity,
+    totalCapacity: defaultCapacities.totalCapacity,
+  };
+
   for (const section of existingSections) {
     const year = normalizeText(section.year);
     const semester = normalizeSemester(section.semester);
@@ -504,9 +517,9 @@ async function buildSectionGroups() {
       section: sectionName,
       blockCount: Number(section.blockCount ?? section.regular ?? 0),
       irregularCount: Number(section.irregularCount ?? section.irregular ?? 0),
-      blockCapacity: Number(section.blockCapacity ?? section.regularCapacity ?? DEFAULT_TOTAL_CAPACITY * 0.9),
-      irregularCapacity: Number(section.irregularCapacity ?? DEFAULT_TOTAL_CAPACITY * 0.1),
-      totalCapacity: Number(section.totalCapacity ?? DEFAULT_TOTAL_CAPACITY),
+      blockCapacity: Number(section.blockCapacity ?? section.regularCapacity ?? defaultCapacities.blockCapacity),
+      irregularCapacity: Number(section.irregularCapacity ?? defaultCapacities.irregularCapacity),
+      totalCapacity: Number(section.totalCapacity ?? defaultCapacities.totalCapacity),
     });
     sectionGroups.set(key, group);
   }
@@ -816,6 +829,28 @@ export async function batchEnrollPreview(req, res) {
 
       const { student, chosenSection, isIrregular, irregularMeta } = enrollmentPlan;
 
+      const assignedSections = [
+        {
+          year: chosenSection.year,
+          section: chosenSection.section,
+          semester: chosenSection.semester,
+          isMain: true,
+        },
+      ];
+
+      if (isIrregular && irregularMeta) {
+        const basePlacementKey = makePlacementKey(chosenSection.year, chosenSection.section);
+        for (const placement of irregularMeta.placementsToOccupy) {
+          if (makePlacementKey(placement.year, placement.section) === basePlacementKey) continue;
+          assignedSections.push({
+            year: normalizeText(placement.year),
+            section: normalizeSectionName(placement.section),
+            semester: normalizeSemester(placement.semester),
+            isMain: false,
+          });
+        }
+      }
+
       preview.placements.push({
         applicantID,
         applicant_name: `${String(applicant.firstName ?? "").trim()} ${String(applicant.lastName ?? "").trim()}`.trim() || "Unknown",
@@ -826,6 +861,7 @@ export async function batchEnrollPreview(req, res) {
         status: student.status,
         irregularSection: isIrregular ? student.irregularSection : [],
         irregularYear: isIrregular ? student.irregularYear : [],
+        assigned_sections: assignedSections,
         advisedSubjectCount: isIrregular ? irregularMeta.subjectIds.length : 0,
       });
     }
@@ -1022,7 +1058,14 @@ export async function importStudents(req, res) {
     if (!normalized.length) return res.status(400).json({ message: "No valid student rows found" });
 
     const existingSections = await Section.find({}).lean();
+    const defaultCapacities = await resolveDefaultSectionCapacities();
     const sectionGroups = new Map();
+    sectionGroups.defaultSourceSection = {
+      blockCapacity: defaultCapacities.blockCapacity,
+      irregularCapacity: defaultCapacities.irregularCapacity,
+      totalCapacity: defaultCapacities.totalCapacity,
+    };
+
     for (const section of existingSections) {
       const year = normalizeText(section.year);
       const semester = normalizeSemester(section.semester);
@@ -1034,9 +1077,9 @@ export async function importStudents(req, res) {
         year, semester, section: sectionName,
         blockCount: Number(section.blockCount ?? section.regular ?? 0),
         irregularCount: Number(section.irregularCount ?? section.irregular ?? 0),
-        blockCapacity: Number(section.blockCapacity ?? section.regularCapacity ?? DEFAULT_TOTAL_CAPACITY * 0.9),
-        irregularCapacity: Number(section.irregularCapacity ?? DEFAULT_TOTAL_CAPACITY * 0.1),
-        totalCapacity: Number(section.totalCapacity ?? DEFAULT_TOTAL_CAPACITY),
+        blockCapacity: Number(section.blockCapacity ?? section.regularCapacity ?? defaultCapacities.blockCapacity),
+        irregularCapacity: Number(section.irregularCapacity ?? defaultCapacities.irregularCapacity),
+        totalCapacity: Number(section.totalCapacity ?? defaultCapacities.totalCapacity),
       });
       sectionGroups.set(key, group);
     }

@@ -1,10 +1,10 @@
 import Section from "../models/Section.js";
 import Student from "../models/Student.js";
 import {
-  DEFAULT_TOTAL_CAPACITY,
   getSectionCapacities,
   getSectionStatus,
   rebalanceSections,
+  resolveDefaultSectionCapacities,
   syncAllSectionsFromStudents,
 } from "../services/sectionService.js";
 
@@ -52,7 +52,7 @@ export async function createSection(req, res) {
       return res.status(409).json({ message: "Section already exists" });
     }
 
-    const capacities = getSectionCapacities(DEFAULT_TOTAL_CAPACITY);
+    const capacities = await resolveDefaultSectionCapacities({ year, semester });
 
     const created = await Section.create({
       section: sectionName,

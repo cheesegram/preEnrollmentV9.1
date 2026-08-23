@@ -19,6 +19,21 @@ function loadSectionTemplate() {
 const SECTION_TEMPLATE = loadSectionTemplate();
 export const DEFAULT_TOTAL_CAPACITY = Number(SECTION_TEMPLATE.totalCapacity) || 50;
 
+const TEMPLATE_CAPACITIES = (() => {
+  const parsedBlock = Number(SECTION_TEMPLATE.blockCapacity);
+  const parsedIrregular = Number(SECTION_TEMPLATE.irregularCapacity);
+  if (Number.isFinite(parsedBlock) && parsedBlock >= 0 && Number.isFinite(parsedIrregular) && parsedIrregular >= 0) {
+    return {
+      totalCapacity: parsedBlock + parsedIrregular,
+      blockCapacity: parsedBlock,
+      irregularCapacity: parsedIrregular,
+    };
+  }
+  return getSectionCapacities(SECTION_TEMPLATE.totalCapacity);
+})();
+
+export const DEFAULT_SECTION_CAPACITIES = TEMPLATE_CAPACITIES;
+
 export function normalizeSectionValue(value) {
   return String(value ?? "").trim();
 }
@@ -45,6 +60,53 @@ export function getSectionCapacities(totalCapacity = DEFAULT_TOTAL_CAPACITY) {
   };
 }
 
+function capacitiesFromSection(section) {
+  if (!section || typeof section !== "object") return null;
+
+  const parsedBlock = Number(section.blockCapacity);
+  const parsedIrregular = Number(section.irregularCapacity);
+  if (Number.isFinite(parsedBlock) && parsedBlock >= 0 && Number.isFinite(parsedIrregular) && parsedIrregular >= 0) {
+    return {
+      totalCapacity: parsedBlock + parsedIrregular,
+      blockCapacity: parsedBlock,
+      irregularCapacity: parsedIrregular,
+    };
+  }
+
+  const parsedTotal = Number(section.totalCapacity);
+  if (Number.isFinite(parsedTotal) && parsedTotal >= 0) {
+    return getSectionCapacities(parsedTotal);
+  }
+
+  return null;
+}
+
+export async function resolveDefaultSectionCapacities({ year = "", semester = "" } = {}) {
+  const normalizedYear = normalizeSectionValue(year);
+  const normalizedSemester = normalizeSemester(semester);
+
+  if (normalizedYear && normalizedSemester) {
+    const preferred = await Section.findOne({
+      year: normalizedYear,
+      semester: normalizedSemester,
+    })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    const preferredCapacities = capacitiesFromSection(preferred);
+    if (preferredCapacities) return preferredCapacities;
+  }
+
+  const latest = await Section.findOne({})
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .lean();
+
+  const latestCapacities = capacitiesFromSection(latest);
+  if (latestCapacities) return latestCapacities;
+
+  return DEFAULT_SECTION_CAPACITIES;
+}
+
 export function getSectionStatus(blockCount = 0, irregularCount = 0, totalCapacity = DEFAULT_TOTAL_CAPACITY) {
   const studentCount = Number(blockCount || 0) + Number(irregularCount || 0);
   const capacity = Number(totalCapacity || 0);
@@ -64,7 +126,7 @@ export function createSectionState({ year, semester, section, sourceSection = nu
       irregularCapacity: parsedIrregular,
     };
   } else {
-    capacities = getSectionCapacities(sourceSection?.totalCapacity ?? SECTION_TEMPLATE.totalCapacity);
+    capacities = capacitiesFromSection(sourceSection) || DEFAULT_SECTION_CAPACITIES;
   }
 
   return {

@@ -38,6 +38,384 @@ function isIrregularStatus(status) {
   return normalizeText(status).toLowerCase() === "irregular";
 }
 
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const normalized = normalizeText(value).toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function getApplicantIdentifier(applicant = {}) {
+  return String(
+    applicant.applicantId ?? applicant.applicantID ?? applicant.applicant_id ?? applicant.applicant_number ?? ""
+  ).trim();
+}
+
+function getApplicantStudentNumber(applicant = {}) {
+  const rawId = getApplicantIdentifier(applicant);
+  return rawId.replace(/^A-?/i, "");
+}
+
+function buildApplicantSearchConditions(applicantID) {
+  const searchConditions = [
+    { applicantId: applicantID },
+    { applicantId: Number(applicantID) },
+    { applicantID },
+    { applicant_id: applicantID },
+    { applicant_number: applicantID },
+    { applicant_number: Number(applicantID) },
+  ];
+  if (mongoose.Types.ObjectId.isValid(applicantID)) {
+    searchConditions.push({ _id: new mongoose.Types.ObjectId(applicantID) });
+  }
+  return searchConditions;
+}
+
+function buildAdvisingSearchConditions(...candidateIds) {
+  const normalizedIds = [...new Set(candidateIds.map((value) => String(value ?? "").trim()).filter(Boolean))];
+  const conditions = [];
+  for (const id of normalizedIds) {
+    conditions.push({ applicantID: id });
+    conditions.push({ applicantId: id });
+    conditions.push({ applicant_id: id });
+    conditions.push({ applicant_number: id });
+    const numericId = Number(id);
+    if (!Number.isNaN(numericId)) {
+      conditions.push({ applicantID: numericId });
+      conditions.push({ applicantId: numericId });
+      conditions.push({ applicant_number: numericId });
+    }
+  }
+  return conditions;
+}
+
+function normalizeAdvisedSubjects(subjects) {
+  if (!Array.isArray(subjects)) return [];
+  return subjects
+    .map((subject) => ({
+      subjectId: normalizeText(subject?.subjectId ?? subject?.subjectID ?? subject?.subject_code),
+      targetYear: normalizeText(subject?.targetYear ?? subject?.year),
+      targetSection: normalizeSectionName(subject?.targetSection ?? subject?.section),
+    }))
+    .filter((subject) => subject.subjectId);
+}
+
+function collectUniqueValues(values) {
+  return [...new Set(values.map((value) => normalizeText(value)).filter(Boolean))];
+}
+
+function makePlacementKey(year, section) {
+  return `${normalizeText(year)}::${normalizeSectionName(section)}`;
+}
+
+function samePlacement(left, right) {
+  return makePlacementKey(left?.year, left?.section) === makePlacementKey(right?.year, right?.section);
+}
+
+function ensureSectionState(sectionGroups, year, semester, sectionName) {
+  const normalizedYear = normalizeText(year);
+  const normalizedSemester = normalizeSemester(semester);
+  const normalizedSection = normalizeSectionName(sectionName);
+  const groupKey = `${normalizedYear}::${normalizedSemester}`;
+  let group = sectionGroups.get(groupKey);
+  if (!group) {
+    group = [];
+    sectionGroups.set(groupKey, group);
+  }
+
+  let section = group.find((entry) => normalizeSectionName(entry.section) === normalizedSection);
+  if (!section) {
+    const sourceSection = group[0] ?? null;
+    section = createSectionState({
+      year: normalizedYear,
+      semester: normalizedSemester,
+      section: normalizedSection,
+      sourceSection,
+    });
+    group.push(section);
+  }
+  return section;
+}
+
+async function findAdvisingRecordForApplicant(applicantID, applicant) {
+  const AdvisingRecord = getDbModel("AdvisingRecord", "advisingrecords");
+  const applicantIdentifier = getApplicantIdentifier(applicant);
+  const strippedApplicantIdentifier = applicantIdentifier.replace(/^A-?/i, "");
+  const strippedRequestIdentifier = String(applicantID ?? "").trim().replace(/^A-?/i, "");
+  const conditions = buildAdvisingSearchConditions(
+    applicantID,
+    applicantIdentifier,
+    strippedApplicantIdentifier,
+    strippedRequestIdentifier
+  );
+  if (conditions.length === 0) return null;
+  return AdvisingRecord.findOne({ $or: conditions }).lean();
+}
+
+function buildIrregularMetaFromAdvising(advisingRecord = {}, enrollmentSemester = "") {
+  const advisedSubjects = normalizeAdvisedSubjects(advisingRecord?.advisedSubjects);
+  const baseYear = normalizeText(advisingRecord?.year);
+  const baseSection = normalizeSectionName(advisingRecord?.section);
+  const semester = normalizeSemester(enrollmentSemester);
+
+  const targetPlacements = [];
+  const targetKeys = new Set();
+  for (const subject of advisedSubjects) {
+    if (!subject.targetYear || !subject.targetSection) continue;
+    const key = makePlacementKey(subject.targetYear, subject.targetSection);
+    if (targetKeys.has(key)) continue;
+    targetKeys.add(key);
+    targetPlacements.push({ year: subject.targetYear, section: subject.targetSection, semester });
+  }
+
+  const basePlacement = { year: baseYear, section: baseSection, semester };
+  const placementsToOccupy = [];
+  const placementKeys = new Set();
+
+  if (basePlacement.year && basePlacement.section) {
+    const baseKey = makePlacementKey(basePlacement.year, basePlacement.section);
+    placementKeys.add(baseKey);
+    placementsToOccupy.push(basePlacement);
+  }
+
+  for (const placement of targetPlacements) {
+    const key = makePlacementKey(placement.year, placement.section);
+    if (placementKeys.has(key)) continue;
+    placementKeys.add(key);
+    placementsToOccupy.push(placement);
+  }
+
+  const nonBasePlacements = targetPlacements.filter((placement) => !samePlacement(placement, basePlacement));
+  const irregularSection = collectUniqueValues(nonBasePlacements.map((placement) => placement.section));
+  const irregularYear = collectUniqueValues(nonBasePlacements.map((placement) => placement.year));
+  const subjectIds = collectUniqueValues(advisedSubjects.map((subject) => subject.subjectId));
+
+  return {
+    advisedSubjects,
+    baseYear,
+    baseSection,
+    placementsToOccupy,
+    irregularSection,
+    irregularYear,
+    subjectIds,
+  };
+}
+
+async function upsertIrregularCurriculumAndSchedule({
+  applicantID,
+  studentNumber,
+  student,
+  irregularMeta,
+}) {
+  const curriculumRecordModel = getDbModel("IrregularCurriculumRecord", "curriculums");
+  const scheduleRecordModel = getDbModel("IrregularScheduleRecord", "schedules");
+  const now = new Date();
+
+  const curriculumDocId = `irregular_curriculum_${studentNumber}`;
+  const scheduleDocId = `irregular_schedule_${studentNumber}`;
+
+  await curriculumRecordModel.updateOne(
+    { _id: curriculumDocId },
+    {
+      $set: {
+        _id: curriculumDocId,
+        type: "IrregularCurriculum",
+        irregularID: studentNumber,
+        studentNumber,
+        applicantID: String(applicantID ?? "").trim(),
+        status: "Irregular",
+        year: student.year,
+        section: student.section,
+        subjectIds: irregularMeta.subjectIds,
+        advisedSubjects: irregularMeta.advisedSubjects,
+        subjects: irregularMeta.subjectIds.map((subjectId) => ({ subject_code: subjectId })),
+        updatedAt: now,
+      },
+      $setOnInsert: {
+        createdAt: now,
+      },
+    },
+    { upsert: true }
+  );
+
+  await scheduleRecordModel.updateOne(
+    { _id: scheduleDocId },
+    {
+      $set: {
+        _id: scheduleDocId,
+        type: "IrregularSchedule",
+        irregularID: studentNumber,
+        studentNumber,
+        applicantID: String(applicantID ?? "").trim(),
+        status: "Draft",
+        year: student.year,
+        section: student.section,
+        semester: student.semester,
+        subjectIds: irregularMeta.subjectIds,
+        advisedSubjects: irregularMeta.advisedSubjects,
+        classes: [],
+        updatedAt: now,
+      },
+      $setOnInsert: {
+        createdAt: now,
+      },
+    },
+    { upsert: true }
+  );
+}
+
+function getEnrollmentIdentityPayload(applicant, applicantID) {
+  const applicantIdentifier = getApplicantIdentifier(applicant) || String(applicantID ?? "").trim();
+  const studentNumber = getApplicantStudentNumber({ applicantId: applicantIdentifier });
+  return { applicantIdentifier, studentNumber };
+}
+
+async function prepareEnrollmentPayload({ applicant, applicantID, sectionGroups }) {
+  const normalizedApplicant = normalizeImportedStudent(applicant);
+  const now = new Date();
+  const { studentNumber } = getEnrollmentIdentityPayload(applicant, applicantID);
+  const enrollmentSemester = normalizeSemester(applicant.semester);
+  const applicantIsIrregular = toBoolean(applicant?.isIrregular);
+
+  if (applicantIsIrregular) {
+    const advisingRecord = await findAdvisingRecordForApplicant(applicantID, applicant);
+    if (!advisingRecord) {
+      return {
+        ok: false,
+        reason: "missing_advising_record",
+        message: "Enrollment blocked: Missing advising record for irregular applicant",
+      };
+    }
+
+    const irregularMeta = buildIrregularMetaFromAdvising(advisingRecord, enrollmentSemester);
+    if (!irregularMeta.baseYear || !irregularMeta.baseSection) {
+      return {
+        ok: false,
+        reason: "invalid_advising_record",
+        message: "Enrollment blocked: Advising record must include year and section",
+      };
+    }
+
+    if (!irregularMeta.subjectIds.length) {
+      return {
+        ok: false,
+        reason: "invalid_advising_record",
+        message: "Enrollment blocked: Advising record has no advised subjects",
+      };
+    }
+
+    for (const placement of irregularMeta.placementsToOccupy) {
+      const targetSection = ensureSectionState(sectionGroups, placement.year, placement.semester, placement.section);
+      if (!sectionHasCapacityForStudent(targetSection, { status: "Irregular" })) {
+        return {
+          ok: false,
+          reason: "section_full",
+          message: `Enrollment blocked: Irregular section ${placement.year}-${placement.section} is full`,
+        };
+      }
+    }
+
+    const baseSection = ensureSectionState(
+      sectionGroups,
+      irregularMeta.baseYear,
+      enrollmentSemester,
+      irregularMeta.baseSection
+    );
+
+    // Reserve one irregular slot in each advised placement for in-memory planning.
+    for (const placement of irregularMeta.placementsToOccupy) {
+      const targetSection = ensureSectionState(sectionGroups, placement.year, placement.semester, placement.section);
+      addStudentToSectionState(targetSection, "Irregular");
+    }
+
+    const student = {
+      ...normalizedApplicant,
+      studentNumber,
+      status: "Irregular",
+      year: irregularMeta.baseYear,
+      semester: enrollmentSemester,
+      section: baseSection.section,
+      irregularSection: irregularMeta.irregularSection,
+      irregularYear: irregularMeta.irregularYear,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    return {
+      ok: true,
+      student,
+      chosenSection: baseSection,
+      isIrregular: true,
+      irregularMeta,
+    };
+  }
+
+  const enrollmentYear = normalizeText(applicant.year);
+  const tempStudent = {
+    ...applicant,
+    year: enrollmentYear,
+    semester: enrollmentSemester,
+    status: "Block",
+  };
+  const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
+  addStudentToSectionState(chosenSection, "Block");
+
+  return {
+    ok: true,
+    student: {
+      ...normalizedApplicant,
+      studentNumber,
+      status: "Block",
+      year: enrollmentYear,
+      semester: enrollmentSemester,
+      section: chosenSection.section,
+      createdAt: now,
+      updatedAt: now,
+    },
+    chosenSection,
+    isIrregular: false,
+    irregularMeta: null,
+  };
+}
+
+async function persistAdditionalIrregularPlacements({ student, irregularMeta }) {
+  const baseKey = makePlacementKey(student.year, student.section);
+  const extraPlacements = irregularMeta.placementsToOccupy.filter(
+    (placement) => makePlacementKey(placement.year, placement.section) !== baseKey
+  );
+
+  for (const placement of extraPlacements) {
+    const filter = {
+      year: normalizeText(placement.year),
+      section: normalizeSectionName(placement.section),
+      semester: normalizeSemester(placement.semester),
+    };
+
+    const sectionAfterIncrement = await Section.findOneAndUpdate(
+      filter,
+      {
+        $setOnInsert: {
+          ...filter,
+          blockCount: 0,
+          irregularCount: 0,
+          blockCapacity: DEFAULT_TOTAL_CAPACITY * 0.9,
+          irregularCapacity: DEFAULT_TOTAL_CAPACITY * 0.1,
+          totalCapacity: DEFAULT_TOTAL_CAPACITY,
+        },
+        $inc: { irregularCount: 1 },
+      },
+      { new: true, upsert: true }
+    );
+
+    const status = getSectionStatus(
+      Number(sectionAfterIncrement?.blockCount ?? 0),
+      Number(sectionAfterIncrement?.irregularCount ?? 0),
+      Number(sectionAfterIncrement?.totalCapacity ?? DEFAULT_TOTAL_CAPACITY)
+    );
+
+    await Section.updateOne(filter, { $set: { status } });
+  }
+}
+
 function sectionNameToIndex(sectionName) {
   const normalized = normalizeSectionName(sectionName);
   if (!/^[A-Z]+$/.test(normalized)) return Number.MAX_SAFE_INTEGER;
@@ -314,26 +692,12 @@ export async function enrollFromApplicant(req, res) {
     if (!applicantID) return res.status(400).json({ message: "applicantID is required" });
 
     const Applicant = getDbModel("Applicant", "applicants");
-    const searchConditions = [
-      { applicantId: applicantID },
-      { applicantId: Number(applicantID) },
-      { applicantID },
-      { applicant_id: applicantID },
-      { applicant_number: applicantID },
-      { applicant_number: Number(applicantID) },
-    ];
-    if (mongoose.Types.ObjectId.isValid(applicantID)) {
-      searchConditions.push({ _id: new mongoose.Types.ObjectId(applicantID) });
-    }
+    const searchConditions = buildApplicantSearchConditions(applicantID);
 
     const applicant = await Applicant.findOne({ $or: searchConditions }).lean();
     if (!applicant) return res.status(404).json({ message: "Applicant not found" });
 
-    // Generate studentNumber from applicantId (strip "A-" prefix)
-    const rawId = String(
-      applicant.applicantId ?? applicant.applicantID ?? applicant.applicant_id ?? applicant.applicant_number ?? ""
-    ).trim();
-    const studentNumber = rawId.replace(/^A-?/i, "");
+    const { studentNumber } = getEnrollmentIdentityPayload(applicant, applicantID);
 
     // Check for duplicate studentNumber
     const existingStudent = await Student.findOne({ studentNumber }).lean();
@@ -345,26 +709,17 @@ export async function enrollFromApplicant(req, res) {
       });
     }
 
-    // Build section groups for auto-sectioning
+    // Build section groups for section planning and capacity checks
     const sectionGroups = await buildSectionGroups();
-    const enrollmentYear = normalizeText(applicant.year);
-    const enrollmentSemester = normalizeSemester(applicant.semester);
-    const tempStudent = { ...applicant, year: enrollmentYear, semester: enrollmentSemester, status: "Block" };
-    const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
+    const enrollmentPlan = await prepareEnrollmentPayload({ applicant, applicantID, sectionGroups });
+    if (!enrollmentPlan.ok) {
+      return res.status(409).json({
+        message: enrollmentPlan.message,
+        blockReason: enrollmentPlan.reason,
+      });
+    }
 
-    // Build the student object — normalize all fields from applicant to camelCase
-    const normalizedApplicant = normalizeImportedStudent(applicant);
-    const now = new Date();
-    const student = {
-      ...normalizedApplicant,
-      studentNumber,
-      status: "Block",
-      year: enrollmentYear,
-      semester: enrollmentSemester,
-      section: chosenSection.section,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const { student, chosenSection, isIrregular, irregularMeta } = enrollmentPlan;
 
     // Insert the student
     await Student.create(student);
@@ -375,8 +730,6 @@ export async function enrollFromApplicant(req, res) {
       { $set: { status: "Enrolled" } }
     );
 
-    addStudentToSectionState(chosenSection, student.status);
-    
     // Persist section with correct capacities before syncing
     await Section.findOneAndUpdate(
       { year: chosenSection.year, section: chosenSection.section, semester: chosenSection.semester },
@@ -389,8 +742,18 @@ export async function enrollFromApplicant(req, res) {
       },
       { new: true, upsert: true }
     );
-    
+
     await syncSectionFromStudents(student);
+
+    if (isIrregular && irregularMeta) {
+      await persistAdditionalIrregularPlacements({ student, irregularMeta });
+      await upsertIrregularCurriculumAndSchedule({
+        applicantID,
+        studentNumber,
+        student,
+        irregularMeta,
+      });
+    }
 
     res.status(200).json({ message: "Student enrolled successfully", student });
   } catch (error) {
@@ -403,24 +766,11 @@ export async function enrollFromApplicant(req, res) {
  * Helper: find an applicant by ID from the applicants collection.
  */
 async function findApplicantForEnrollment(applicantID) {
-  const searchConditions = [
-    { applicantId: applicantID },
-    { applicantId: Number(applicantID) },
-    { applicantID },
-    { applicant_id: applicantID },
-    { applicant_number: applicantID },
-    { applicant_number: Number(applicantID) },
-  ];
-  if (mongoose.Types.ObjectId.isValid(applicantID)) {
-    searchConditions.push({ _id: new mongoose.Types.ObjectId(applicantID) });
-  }
+  const searchConditions = buildApplicantSearchConditions(applicantID);
   const Applicant = getDbModel("Applicant", "applicants");
   const applicant = await Applicant.findOne({ $or: searchConditions }).lean();
   if (!applicant) return null;
-  const rawId = String(
-    applicant.applicantId ?? applicant.applicantID ?? applicant.applicant_id ?? applicant.applicant_number ?? ""
-  ).trim();
-  const studentNumber = rawId.replace(/^A-?/i, "");
+  const { studentNumber } = getEnrollmentIdentityPayload(applicant, applicantID);
   return { applicant, studentNumber };
 }
 
@@ -452,11 +802,19 @@ export async function batchEnrollPreview(req, res) {
         continue;
       }
 
-      const enrollmentYear = normalizeText(applicant.year);
-      const enrollmentSemester = normalizeSemester(applicant.semester);
-      const tempStudent = { ...applicant, year: enrollmentYear, semester: enrollmentSemester, status: "Block" };
-      const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
-      addStudentToSectionState(chosenSection, tempStudent.status);
+      const enrollmentPlan = await prepareEnrollmentPayload({ applicant, applicantID, sectionGroups });
+      if (!enrollmentPlan.ok) {
+        preview.blocked.push({
+          applicantID,
+          applicant_name: `${String(applicant.firstName ?? "").trim()} ${String(applicant.lastName ?? "").trim()}`.trim() || "Unknown",
+          studentNumber,
+          reason: enrollmentPlan.reason,
+          message: enrollmentPlan.message,
+        });
+        continue;
+      }
+
+      const { student, chosenSection, isIrregular, irregularMeta } = enrollmentPlan;
 
       preview.placements.push({
         applicantID,
@@ -465,6 +823,10 @@ export async function batchEnrollPreview(req, res) {
         assigned_section: chosenSection.section,
         assigned_year: chosenSection.year,
         assigned_semester: chosenSection.semester,
+        status: student.status,
+        irregularSection: isIrregular ? student.irregularSection : [],
+        irregularYear: isIrregular ? student.irregularYear : [],
+        advisedSubjectCount: isIrregular ? irregularMeta.subjectIds.length : 0,
       });
     }
 
@@ -506,24 +868,19 @@ export async function batchEnrollFromApplicants(req, res) {
           continue;
         }
 
-        const enrollmentYear = normalizeText(applicant.year);
-        const enrollmentSemester = normalizeSemester(applicant.semester);
-        const tempStudent = { ...applicant, year: enrollmentYear, semester: enrollmentSemester, status: "Block" };
-        const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
+        const enrollmentPlan = await prepareEnrollmentPayload({ applicant, applicantID, sectionGroups });
+        if (!enrollmentPlan.ok) {
+          results.blocked.push({
+            applicantID,
+            applicant_name: `${String(applicant.firstName ?? "").trim()} ${String(applicant.lastName ?? "").trim()}`.trim() || "Unknown",
+            studentNumber,
+            reason: enrollmentPlan.reason,
+            message: enrollmentPlan.message,
+          });
+          continue;
+        }
 
-        // Build the student object — normalize all fields from applicant to camelCase
-        const normalizedApplicant = normalizeImportedStudent(applicant);
-        const now = new Date();
-        const student = {
-          ...normalizedApplicant,
-          studentNumber,
-          status: "Block",
-          year: enrollmentYear,
-          semester: enrollmentSemester,
-          section: chosenSection.section,
-          createdAt: now,
-          updatedAt: now,
-        };
+        const { student, chosenSection, isIrregular, irregularMeta } = enrollmentPlan;
 
         await Student.create(student);
 
@@ -534,8 +891,6 @@ export async function batchEnrollFromApplicants(req, res) {
           { $set: { status: "Enrolled" } }
         );
 
-        addStudentToSectionState(chosenSection, student.status);
-        
         // Persist section with correct capacities before syncing
         await Section.findOneAndUpdate(
           { year: chosenSection.year, section: chosenSection.section, semester: chosenSection.semester },
@@ -548,14 +903,25 @@ export async function batchEnrollFromApplicants(req, res) {
           },
           { new: true, upsert: true }
         );
-        
+
         await syncSectionFromStudents(student);
+
+        if (isIrregular && irregularMeta) {
+          await persistAdditionalIrregularPlacements({ student, irregularMeta });
+          await upsertIrregularCurriculumAndSchedule({
+            applicantID,
+            studentNumber,
+            student,
+            irregularMeta,
+          });
+        }
 
         results.enrolled.push({
           applicantID,
           applicant_name: `${String(applicant.firstName ?? "").trim()} ${String(applicant.lastName ?? "").trim()}`.trim() || "Unknown",
           studentNumber,
           assigned_section: chosenSection.section,
+          status: student.status,
         });
       } catch (err) {
         console.error(`[BatchEnroll] Error enrolling applicant ${applicantID}:`, err);

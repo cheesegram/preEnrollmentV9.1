@@ -35,6 +35,14 @@ const studentSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    irregularSection: {
+      type: [String],
+      default: [],
+    },
+    irregularYear: {
+      type: [String],
+      default: [],
+    },
     // personal information fields
     birthDate: {
       type: String,

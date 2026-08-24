@@ -201,69 +201,6 @@ function buildIrregularMetaFromAdvising(advisingRecord = {}, enrollmentSemester 
   };
 }
 
-async function upsertIrregularCurriculumAndSchedule({
-  applicantID,
-  studentNumber,
-  student,
-  irregularMeta,
-}) {
-  const curriculumRecordModel = getDbModel("IrregularCurriculumRecord", "curriculums");
-  const scheduleRecordModel = getDbModel("IrregularScheduleRecord", "schedules");
-  const now = new Date();
-
-  const curriculumDocId = `irregular_curriculum_${studentNumber}`;
-  const scheduleDocId = `irregular_schedule_${studentNumber}`;
-
-  await curriculumRecordModel.updateOne(
-    { _id: curriculumDocId },
-    {
-      $set: {
-        _id: curriculumDocId,
-        type: "IrregularCurriculum",
-        irregularID: studentNumber,
-        studentNumber,
-        applicantID: String(applicantID ?? "").trim(),
-        status: "Irregular",
-        year: student.year,
-        section: student.section,
-        subjectIds: irregularMeta.subjectIds,
-        advisedSubjects: irregularMeta.advisedSubjects,
-        subjects: irregularMeta.subjectIds.map((subjectId) => ({ subject_code: subjectId })),
-        updatedAt: now,
-      },
-      $setOnInsert: {
-        createdAt: now,
-      },
-    },
-    { upsert: true }
-  );
-
-  await scheduleRecordModel.updateOne(
-    { _id: scheduleDocId },
-    {
-      $set: {
-        _id: scheduleDocId,
-        type: "IrregularSchedule",
-        irregularID: studentNumber,
-        studentNumber,
-        applicantID: String(applicantID ?? "").trim(),
-        status: "Draft",
-        year: student.year,
-        section: student.section,
-        semester: student.semester,
-        subjectIds: irregularMeta.subjectIds,
-        advisedSubjects: irregularMeta.advisedSubjects,
-        classes: [],
-        updatedAt: now,
-      },
-      $setOnInsert: {
-        createdAt: now,
-      },
-    },
-    { upsert: true }
-  );
-}
-
 function getEnrollmentIdentityPayload(applicant, applicantID) {
   const applicantIdentifier = getApplicantIdentifier(applicant) || String(applicantID ?? "").trim();
   const studentNumber = getApplicantStudentNumber({ applicantId: applicantIdentifier });
@@ -378,47 +315,113 @@ async function prepareEnrollmentPayload({ applicant, applicantID, sectionGroups 
   };
 }
 
-async function persistAdditionalIrregularPlacements({ student, irregularMeta }) {
-  const baseKey = makePlacementKey(student.year, student.section);
-  const extraPlacements = irregularMeta.placementsToOccupy.filter(
-    (placement) => makePlacementKey(placement.year, placement.section) !== baseKey
-  );
+/**
+ * Analyze a persisted student file and update the "irregularCount" of every
+ * section file it occupies.  Only students whose status is "Irregular" occupy
+ * multiple sections.
+ *
+ * Each INDIVIDUAL string value inside the student's "irregularSection" and
+ * "irregularYear" arrays is compared against the "section" and "year"
+ * attribute values of section files (never the arrays as a whole).  A section
+ * file matches when its "section" equals an individual irregularSection value,
+ * its "year" equals the corresponding individual irregularYear value, and its
+ * "semester" equals the student's "semester".  The main section (year +
+ * section) is skipped because syncSectionFromStudents already recounted it.
+ */
+async function updateIrregularSectionCounts(student = {}) {
+  if (!isIrregularStatus(student.status)) return;
 
-  for (const placement of extraPlacements) {
-    const filter = {
-      year: normalizeText(placement.year),
-      section: normalizeSectionName(placement.section),
-      semester: normalizeSemester(placement.semester),
-    };
+  const semester = normalizeSemester(student.semester);
+  const mainYear = normalizeText(student.year);
+  const mainSection = normalizeSectionName(student.section);
+  const mainKey = `${mainYear}::${mainSection}`;
 
-    const capacities = await resolveDefaultSectionCapacities({
-      year: filter.year,
-      semester: filter.semester,
-    });
+  const rawSections = Array.isArray(student.irregularSection)
+    ? student.irregularSection
+    : student.irregularSection != null && student.irregularSection !== ""
+      ? [student.irregularSection]
+      : [];
+  const rawYears = Array.isArray(student.irregularYear)
+    ? student.irregularYear
+    : student.irregularYear != null && student.irregularYear !== ""
+      ? [student.irregularYear]
+      : [];
 
-    const sectionAfterIncrement = await Section.findOneAndUpdate(
-      filter,
-      {
-        $setOnInsert: {
-          ...filter,
-          blockCount: 0,
-          irregularCount: 0,
-          blockCapacity: capacities.blockCapacity,
-          irregularCapacity: capacities.irregularCapacity,
-          totalCapacity: capacities.totalCapacity,
+  const targets = [];
+  const seenKeys = new Set([mainKey]);
+
+  const pushTarget = (rawSection, rawYear) => {
+    const section = normalizeSectionName(rawSection);
+    const year = normalizeText(rawYear);
+    if (!section || !year) return;
+    const key = `${year}::${section}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    targets.push({ year, section, semester });
+  };
+
+  // Pair individual values position-by-position; fall back to the first year
+  // value when a section has no year at the same index.
+  rawSections.forEach((section, index) => {
+    pushTarget(section, rawYears[index] ?? rawYears[0]);
+  });
+
+  // When a single irregular section spans several years, make sure every
+  // individual year value gets its own section file update.
+  if (rawSections.length === 1) {
+    for (const year of rawYears.slice(1)) {
+      pushTarget(rawSections[0], year);
+    }
+  }
+
+  for (const filter of targets) {
+    try {
+      console.log(
+        `[IrregularCount] Updating section "${filter.section}" (year ${filter.year}, semester ${filter.semester}) for student ${student.studentNumber}`
+      );
+
+      const capacities = await resolveDefaultSectionCapacities({
+        year: filter.year,
+        semester: filter.semester,
+      });
+
+      // NOTE: irregularCount must NOT appear in $setOnInsert because MongoDB
+      // forbids mixing $setOnInsert and $inc on the same field path (error 282
+      // "would create a conflict").  $inc alone is sufficient: on insert it
+      // seeds the field to 1 (missing field treated as 0), and on update it
+      // increments the existing value by 1.
+      const sectionAfterIncrement = await Section.findOneAndUpdate(
+        filter,
+        {
+          $setOnInsert: {
+            ...filter,
+            blockCount: 0,
+            blockCapacity: capacities.blockCapacity,
+            irregularCapacity: capacities.irregularCapacity,
+            totalCapacity: capacities.totalCapacity,
+          },
+          $inc: { irregularCount: 1 },
         },
-        $inc: { irregularCount: 1 },
-      },
-      { new: true, upsert: true }
-    );
+        { new: true, upsert: true }
+      );
 
-    const status = getSectionStatus(
-      Number(sectionAfterIncrement?.blockCount ?? 0),
-      Number(sectionAfterIncrement?.irregularCount ?? 0),
-      Number(sectionAfterIncrement?.totalCapacity ?? capacities.totalCapacity)
-    );
+      const status = getSectionStatus(
+        Number(sectionAfterIncrement?.blockCount ?? 0),
+        Number(sectionAfterIncrement?.irregularCount ?? 0),
+        Number(sectionAfterIncrement?.totalCapacity ?? capacities.totalCapacity)
+      );
 
-    await Section.updateOne(filter, { $set: { status } });
+      await Section.updateOne(filter, { $set: { status } });
+
+      console.log(
+        `[IrregularCount] Section "${filter.section}" now has irregularCount=${sectionAfterIncrement?.irregularCount} (status: ${status})`
+      );
+    } catch (error) {
+      console.error(
+        `[IrregularCount] Failed to update section "${filter.section}" (year ${filter.year}, semester ${filter.semester}):`,
+        error
+      );
+    }
   }
 }
 
@@ -732,10 +735,10 @@ export async function enrollFromApplicant(req, res) {
       });
     }
 
-    const { student, chosenSection, isIrregular, irregularMeta } = enrollmentPlan;
+    const { student, chosenSection, isIrregular } = enrollmentPlan;
 
     // Insert the student
-    await Student.create(student);
+    const createdStudent = await Student.create(student);
 
     // Update the applicant's status to "Enrolled" (keep in applicants collection)
     await Applicant.updateOne(
@@ -758,14 +761,8 @@ export async function enrollFromApplicant(req, res) {
 
     await syncSectionFromStudents(student);
 
-    if (isIrregular && irregularMeta) {
-      await persistAdditionalIrregularPlacements({ student, irregularMeta });
-      await upsertIrregularCurriculumAndSchedule({
-        applicantID,
-        studentNumber,
-        student,
-        irregularMeta,
-      });
+    if (isIrregular) {
+      await updateIrregularSectionCounts(createdStudent ?? student);
     }
 
     res.status(200).json({ message: "Student enrolled successfully", student });
@@ -916,9 +913,9 @@ export async function batchEnrollFromApplicants(req, res) {
           continue;
         }
 
-        const { student, chosenSection, isIrregular, irregularMeta } = enrollmentPlan;
+        const { student, chosenSection, isIrregular } = enrollmentPlan;
 
-        await Student.create(student);
+        const createdStudent = await Student.create(student);
 
         // Update applicant status to "Enrolled" (keep in applicants collection)
         const Applicant = getDbModel("Applicant", "applicants");
@@ -942,14 +939,8 @@ export async function batchEnrollFromApplicants(req, res) {
 
         await syncSectionFromStudents(student);
 
-        if (isIrregular && irregularMeta) {
-          await persistAdditionalIrregularPlacements({ student, irregularMeta });
-          await upsertIrregularCurriculumAndSchedule({
-            applicantID,
-            studentNumber,
-            student,
-            irregularMeta,
-          });
+        if (isIrregular) {
+          await updateIrregularSectionCounts(createdStudent ?? student);
         }
 
         results.enrolled.push({

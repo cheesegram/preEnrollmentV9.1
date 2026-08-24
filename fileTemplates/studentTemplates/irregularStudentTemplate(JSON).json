@@ -1,0 +1,70 @@
+[{
+  "_id": {
+    "$oid": "6a8b9d6efa2d7a27ac35b75c"
+  },
+  "studentNumber": "202620458",
+  "firstName": "Cath",
+  "lastName": "Soriano",
+  "middleName": "Drego",
+  "section": "A",
+  "semester": "2nd",
+  "status": "Irregular",
+  "year": "2",
+  "irregularSection": [
+    "B"
+  ],
+  "irregularYear": [
+    "1"
+  ],
+  "birthDate": "2026-08-07",
+  "contactNumber": "09123356789",
+  "email": "canika5556@davopa.com",
+  "gender": "female",
+  "civilStatus": "MARRIED",
+  "placeOfBirth": "pul bul",
+  "suffix": "II",
+  "spouseName": "Asawa",
+  "permanentHouse": "777",
+  "permanentStreet": "truo",
+  "permanentBarangay": "Sipat",
+  "permanentCity": "Plaridel",
+  "permanentProvince": "Bulacan",
+  "permanentZip": "3002",
+  "presentHouse": "777",
+  "presentStreet": "truo",
+  "presentBarangay": "Sipat",
+  "presentCity": "Plaridel",
+  "presentProvince": "Bulacan",
+  "presentZip": "3002",
+  "fatherName": "Renato",
+  "fatherContact": "09123356789",
+  "motherName": "Felicia",
+  "motherContact": "09123356789",
+  "schoolYear": "2026-2027",
+  "course": "",
+  "applicantType": "ALS",
+  "elementarySchool": "School",
+  "elementaryAddress": "tungo",
+  "elementaryYear": "2007",
+  "juniorHighSchool": "School",
+  "juniorHighAddress": "tungo",
+  "juniorHighYear": "2007",
+  "seniorHighSchool": "School",
+  "seniorHighAddress": "tungo",
+  "seniorHighYear": "2005",
+  "collegeSchool": "School",
+  "collegeAddress": "tungo",
+  "collegeYear": "2007",
+  "password": "",
+  "disability": true,
+  "indigenous": true,
+  "soloParent": true,
+  "fourPs": true,
+  "createdAt": {
+    "$date": "2026-08-24T01:25:02.444Z"
+  },
+  "updatedAt": {
+    "$date": "2026-08-24T01:25:02.444Z"
+  },
+  "__v": 0
+}]

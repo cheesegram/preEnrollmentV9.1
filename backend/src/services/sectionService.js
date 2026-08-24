@@ -165,10 +165,22 @@ export async function syncSectionFromStudents(sectionIdentity) {
     throw new Error("A year and section are required to sync a section");
   }
 
+  // Irregular students occupy their main section (year + section + semester)
+  // PLUS every section listed individually in their irregularSection /
+  // irregularYear arrays, so both placements must be counted.
+  const irregularOccupantQuery = {
+    status: "Irregular",
+    semester: identity.semester,
+    $or: [
+      { year: identity.year, section: identity.section },
+      { irregularSection: identity.section, irregularYear: identity.year },
+    ],
+  };
+
   const current = await Section.findOne(identity).lean();
   const [blockCount, irregularCount] = await Promise.all([
     Student.countDocuments({ ...identity, status: "Block" }),
-    Student.countDocuments({ ...identity, status: "Irregular" }),
+    Student.countDocuments(irregularOccupantQuery),
   ]);
 
   let blockCapacity, irregularCapacity, totalCapacity;

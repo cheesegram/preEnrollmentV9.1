@@ -14,6 +14,7 @@ function SectionList() {
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedYear, setSelectedYear] = useState("All Year");
   const [sections, setSections] = useState([]);
+  const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [showCapacityModal, setShowCapacityModal] = useState(false);
@@ -112,6 +113,14 @@ function SectionList() {
           .filter((section) => section.blockCount > 0 || section.irregularCount > 0);
 
         setSections(normalized);
+
+        try {
+          const studentsResponse = await api.get("/students", { params: { t: Date.now() } });
+          setStudents(Array.isArray(studentsResponse.data) ? studentsResponse.data : []);
+        } catch (studentsError) {
+          console.error("Failed to load students for section view", studentsError);
+          setStudents([]);
+        }
       } catch (error) {
         console.error("Failed to load sections", error);
         toast.error("Failed to load section data");
@@ -323,7 +332,7 @@ function SectionList() {
         {loading ? (
           <LoadingState label="Loading section data..." />
         ) : (
-          <SectionTable sections={displayedSections} />
+          <SectionTable sections={displayedSections} students={students} />
         )}
       </Panel>
 

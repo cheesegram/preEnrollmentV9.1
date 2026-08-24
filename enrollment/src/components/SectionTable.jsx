@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Pagination from "./ui/Pagination";
+import StudentsTable from "./StudentsTable";
 
 function getCapacityStateStyle(count, capacity) {
   const currentCount = Number(count || 0);
@@ -10,8 +11,8 @@ function getCapacityStateStyle(count, capacity) {
   return "bg-green-100 text-green-700 font-bold";
 }
 
-function SectionTable({ sections, students, onOpenStudentList, className = "" }) {
-  const [detailSection, setDetailSection] = useState(null);
+function SectionTable({ sections, students, className = "" }) {
+  const [studentListSection, setStudentListSection] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -40,7 +41,23 @@ function SectionTable({ sections, students, onOpenStudentList, className = "" })
       const sYear = String(student.year ?? "").trim();
       const sSection = String(student.section ?? "").trim().toUpperCase();
       const sSemester = String(student.semester ?? "").trim() || "N/A";
-      return sYear === year && sSection === sectionName && sSemester === semester;
+
+      // Students whose home section matches the section file.
+      if (sYear === year && sSection === sectionName && sSemester === semester) return true;
+
+      // Irregular students occupying this section through their
+      // irregularSection / irregularYear array values.
+      if (String(student.status ?? "").trim().toLowerCase() !== "irregular") return false;
+
+      const irregularSections = (Array.isArray(student.irregularSection) ? student.irregularSection : []).map(
+        (value) => String(value ?? "").trim().toUpperCase()
+      );
+      const irregularYears = Array.isArray(student.irregularYear) ? student.irregularYear : [];
+      const index = irregularSections.indexOf(sectionName);
+      if (index === -1) return false;
+
+      const pairedYear = String(irregularYears[index] ?? irregularYears[0] ?? "").trim();
+      return pairedYear === year && sSemester === semester;
     });
   };
 
@@ -49,12 +66,13 @@ function SectionTable({ sections, students, onOpenStudentList, className = "" })
     setCurrentPage(1);
   };
 
-  const openDetail = (section) => setDetailSection(section);
-  const closeDetail = () => setDetailSection(null);
+  const openStudentList = (section) => setStudentListSection(section);
+  const closeStudentList = () => setStudentListSection(null);
 
-  const detailEntries = detailSection
-    ? Object.entries(detailSection).filter(([key]) => !["_id", "__v"].includes(key))
-    : [];
+  const studentRowsForModal = useMemo(
+    () => (studentListSection ? getStudentRowsForSection(studentListSection) : []),
+    [studentListSection, studentList]
+  );
 
   const columnCount = 9;
 
@@ -120,9 +138,9 @@ function SectionTable({ sections, students, onOpenStudentList, className = "" })
                     <td className="px-5 py-4 text-center">
                       <button
                         type="button"
-                        onClick={() => openDetail(sec)}
+                        onClick={() => openStudentList(sec)}
                         className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-[#2E522A] focus:outline-none focus:ring-2 focus:ring-[#2E522A]/50"
-                        aria-label={`View details for section ${sec.section}`}
+                        aria-label={`View students for section ${sec.section}`}
                       >
                         <i className="fa-solid fa-magnifying-glass" />
                       </button>
@@ -153,52 +171,44 @@ function SectionTable({ sections, students, onOpenStudentList, className = "" })
         pageSizeOptions={[10, 20, 50]}
       />
 
-      {detailSection &&
+      {studentListSection &&
         createPortal(
           <div className="fixed inset-0 z-[230] flex items-center justify-center overflow-y-auto p-3 sm:p-6">
             <button
               type="button"
               className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
-              onClick={closeDetail}
-              aria-label="Close section details"
+              onClick={closeStudentList}
+              aria-label="Close section student list"
             />
             <div
               role="dialog"
               aria-modal="true"
-              aria-label="Section details"
-              className="animate-fade relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/30 bg-white shadow-2xl shadow-slate-950/25"
+              aria-label="Section student list"
+              className="animate-fade relative flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-white/30 bg-white shadow-2xl shadow-slate-950/25"
             >
               <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
                 <div className="min-w-0">
-                  <p className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-emerald-700">Section Details</p>
+                  <p className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-emerald-700">Students</p>
                   <h3 className="mt-1 truncate text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                    Year {detailSection.year} - Section {detailSection.section}
+                    Year {studentListSection.year} - Section {studentListSection.section}
                   </h3>
-                  <p className="mt-1 text-sm text-slate-500">{detailSection.semester} Semester</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {studentListSection.semester} Semester · {studentRowsForModal.length} student
+                    {studentRowsForModal.length === 1 ? "" : "s"}
+                  </p>
                 </div>
                 <button
                   type="button"
-                  onClick={closeDetail}
+                  onClick={closeStudentList}
                   className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
-                  aria-label="Close section details"
+                  aria-label="Close section student list"
                 >
                   <i className="fa-solid fa-xmark" />
                 </button>
               </div>
 
-              <div className="overflow-y-auto bg-slate-50/60 p-4 sm:p-6">
-                <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {detailEntries.map(([key, value]) => (
-                    <div key={key} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <dt className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-slate-500">
-                        {key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase())}
-                      </dt>
-                      <dd className="mt-2 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-slate-800">
-                        {value === null || value === undefined || value === "" ? "—" : String(value)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2 sm:p-4">
+                <StudentsTable students={studentRowsForModal} tableHeightClass="h-full min-h-[320px]" />
               </div>
             </div>
           </div>,

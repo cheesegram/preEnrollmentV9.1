@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import api from "../lib/axios";
 import { buildStudentScheduleKeys, formatScheduleTimeRange } from "../lib/scheduleUtils";
+import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
 import Pagination from "./ui/Pagination";
 
 const FIELD_LABELS = {
@@ -425,8 +426,8 @@ function StudentsTable({
                       ? (student.applicant_name ?? `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()) || "—"
                       : `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || "—"}
                   </td>
-                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{student.section || "—"}</td>}
-                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{student.year || "—"}</td>}
+                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{getStudentSectionDisplay(student) || "—"}</td>}
+                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{getStudentYearDisplay(student) || "—"}</td>}
                   {!isPendingView && <td className="px-5 py-4 text-gray-600">{student.semester || "—"}</td>}
                   {!isPendingView && (
                     <td className="px-5 py-4 text-center">

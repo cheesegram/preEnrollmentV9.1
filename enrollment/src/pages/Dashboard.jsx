@@ -15,6 +15,7 @@ import {
     parseStudentTemplateFile,
     sanitizeFileName,
 } from "../utils/studentFiles";
+import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
 
 const IMPORT_NOTIFICATION_STORAGE_KEY = "dashboardImportNotificationLog";
 const IMPORT_NOTIFICATION_UNREAD_KEY = "dashboardImportNotificationUnreadCount";
@@ -1310,8 +1311,8 @@ function Dashboard() {
                                     <tr key={student._id || student.studentNumber}>
                                         <td className="px-4 py-3">{student.studentNumber}</td>
                                         <td className="px-4 py-3">{`${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()}</td>
-                                        <td className="px-4 py-3">{student.section}</td>
-                                        <td className="px-4 py-3">{student.year}</td>
+                                        <td className="px-4 py-3">{getStudentSectionDisplay(student)}</td>
+                                        <td className="px-4 py-3">{getStudentYearDisplay(student)}</td>
                                         <td className="px-4 py-3 text-center">
                                             <button
                                                 type="button"

@@ -7,6 +7,7 @@ import Panel from "../components/ui/Panel";
 import SearchInput from "../components/ui/SearchInput";
 import api from "../lib/axios"; 
 import { buildScheduleMap } from "../lib/scheduleUtils";
+import { getStudentPlacements, studentMatchesFilters } from "../utils/studentDisplay";
 
 const YEAR_OPTIONS = ["All Year", "First Year", "Second Year", "Third Year", "Fourth Year"];
 const STATUS_OPTIONS = ["To Be Admitted", "All Registered", "Block", "Irregular"];
@@ -50,14 +51,18 @@ function StudentList() {
   const isPendingView = selectedStatus === "To Be Admitted";
 
   const availableSections = useMemo(() => {
-    let filtered = students.filter((student) => student.status !== "Pending");
-
-    if (selectedYear !== "All Year") {
-      filtered = filtered.filter((student) => String(student.year) === YEAR_MAP[selectedYear]);
-    }
+    const nonPending = students.filter((student) => student.status !== "Pending");
+    const targetYear = selectedYear === "All Year" ? null : YEAR_MAP[selectedYear];
 
     const sections = Array.from(
-      new Set(filtered.map((student) => String(student.section ?? "").trim()).filter(Boolean))
+      new Set(
+        nonPending.flatMap((student) =>
+          getStudentPlacements(student)
+            .filter((placement) => targetYear == null || placement.year === targetYear)
+            .map((placement) => placement.section)
+            .filter(Boolean)
+        )
+      )
     ).sort((left, right) => {
       const leftIrregular = left.toLowerCase() === "irregular";
       const rightIrregular = right.toLowerCase() === "irregular";
@@ -96,12 +101,15 @@ function StudentList() {
       });
     }
  
-    if (!isPendingView && selectedYear !== "All Year") {
-      result = result.filter((student) => String(student.year) === YEAR_MAP[selectedYear]);
-    }
+    if (!isPendingView) {
+      const yearFilter = selectedYear === "All Year" ? null : YEAR_MAP[selectedYear];
+      const sectionFilter = selectedSection === "All Section" ? null : selectedSection;
 
-    if (!isPendingView && selectedSection !== "All Section") {
-      result = result.filter((student) => student.section === selectedSection);
+      if (yearFilter != null || sectionFilter != null) {
+        result = result.filter((student) =>
+          studentMatchesFilters(student, { year: yearFilter, section: sectionFilter })
+        );
+      }
     }
 
     return result.sort((left, right) => {

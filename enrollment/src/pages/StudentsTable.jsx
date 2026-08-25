@@ -407,7 +407,7 @@ function StudentsTable({
                   <td className="px-5 py-4 text-gray-800">
                     {isPendingView
                       ? (student.applicant_name ?? `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()) || "—"
-                      : `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || "—"}
+                      : `${student.firstName ?? ""} ${student.lastName ?? ""}${student.suffix ? " " + String(student.suffix).trim() : ""}`.trim() || "—"}
                   </td>
                   {!isPendingView && <td className="px-5 py-4 text-gray-600">{getStudentSectionDisplay(student) || "—"}</td>}
                   {!isPendingView && <td className="px-5 py-4 text-gray-600">{getStudentYearDisplay(student) || "—"}</td>}

@@ -973,6 +973,71 @@ export async function batchEnrollFromApplicants(req, res) {
 
 // ─── Import Logic ────────────────────────────────────────────────────────────
 
+/**
+ * Block applicant upload preview.
+ *
+ * Receives the raw rows parsed from an uploaded block-applicant CSV/XLSX file
+ * and returns, for every row, the section the applicant will be placed into
+ * according to the auto-sectioning logic WITHOUT persisting anything.  Rows
+ * whose derived student number (applicantID with the leading "A-" omitted)
+ * already exists in the students collection are reported under "blocked".
+ */
+export async function blockImportPreview(req, res) {
+  try {
+    const rows = Array.isArray(req.body?.students) ? req.body.students : [];
+    if (!rows.length) return res.status(400).json({ message: "students array is required" });
+
+    const sectionGroups = await buildSectionGroups();
+    const preview = { placements: [], blocked: [] };
+
+    for (const row of rows) {
+      const applicantID = String(row.applicantID ?? row.applicantId ?? "").trim();
+      const studentNumber = String(
+        row.studentNumber && String(row.studentNumber).trim() ? row.studentNumber : applicantID
+      ).replace(/^A-?/i, "").trim();
+      const firstName = String(row.firstName ?? "").trim();
+      const lastName = String(row.lastName ?? "").trim();
+      const applicant_name = `${firstName} ${lastName}`.trim() || "Unknown";
+
+      if (!studentNumber) {
+        preview.blocked.push({ applicantID, applicant_name, reason: "missing_applicant_id" });
+        continue;
+      }
+
+      const existingStudent = await Student.findOne({ studentNumber }).lean();
+      if (existingStudent) {
+        preview.blocked.push({ applicantID, applicant_name, studentNumber, reason: "student_exists" });
+        continue;
+      }
+
+      // Plan the placement using the same auto-sectioning logic as enrollment,
+      // reserving capacity in memory so consecutive rows fill sections evenly.
+      const tempStudent = {
+        year: normalizeText(row.year),
+        semester: normalizeSemester(row.semester),
+        status: "Block",
+      };
+      const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
+      addStudentToSectionState(chosenSection, "Block");
+
+      preview.placements.push({
+        applicantID,
+        applicant_name,
+        studentNumber,
+        assigned_section: chosenSection.section,
+        assigned_year: chosenSection.year,
+        assigned_semester: chosenSection.semester,
+        status: "Block",
+      });
+    }
+
+    res.status(200).json(preview);
+  } catch (error) {
+    console.error("Error in blockImportPreview controller", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
+
 function normalizeImportedStudent(raw = {}) {
   const firstName = String(raw.firstName ?? raw.first_name ?? "").trim();
   const lastName = String(raw.lastName ?? raw.last_name ?? "").trim();
@@ -1029,10 +1094,10 @@ function normalizeImportedStudent(raw = {}) {
     collegeSchool: String(raw.collegeSchool ?? raw.college_school ?? "").trim(),
     collegeAddress: String(raw.collegeAddress ?? raw.college_address ?? "").trim(),
     collegeYear: String(raw.collegeYear ?? "").trim(),
-    disability: raw.disability === true || raw.disability === "true",
-    indigenous: raw.indigenous === true || raw.indigenous === "true",
-    soloParent: raw.soloParent === true || raw.soloParent === "true",
-    fourPs: raw.fourPs === true || raw.fourPs === "true",
+    disability: raw.disability === true || String(raw.disability ?? "").trim().toLowerCase() === "true",
+    indigenous: raw.indigenous === true || String(raw.indigenous ?? "").trim().toLowerCase() === "true",
+    soloParent: raw.soloParent === true || String(raw.soloParent ?? "").trim().toLowerCase() === "true",
+    fourPs: raw.fourPs === true || String(raw.fourPs ?? "").trim().toLowerCase() === "true",
   };
 }
 
@@ -1045,8 +1110,27 @@ export async function importStudents(req, res) {
 
     if (!rows.length) return res.status(400).json({ message: "students array is required" });
 
-    const normalized = rows.map(normalizeImportedStudent).filter((s) => s.studentNumber);
+    // Block applicant uploads: the applicantID column value becomes the
+    // studentNumber attribute with the leading "A-" omitted.
+    let preparedRows = rows;
+    if (importType === "block") {
+      preparedRows = rows.map((row) => ({
+        ...row,
+        studentNumber: String(
+          row.studentNumber && String(row.studentNumber).trim()
+            ? row.studentNumber
+            : String(row.applicantID ?? row.applicantId ?? "")
+        ).replace(/^A-?/i, "").trim(),
+      }));
+    }
+
+    const normalized = preparedRows.map(normalizeImportedStudent).filter((s) => s.studentNumber);
     if (!normalized.length) return res.status(400).json({ message: "No valid student rows found" });
+
+    // Block applicant uploads are always created under the "Block" status.
+    if (importType === "block") {
+      normalized.forEach((student) => { student.status = "Block"; });
+    }
 
     const existingSections = await Section.find({}).lean();
     const defaultCapacities = await resolveDefaultSectionCapacities();
@@ -1108,7 +1192,7 @@ export async function importStudents(req, res) {
 
     const blocked = normalized.filter((s) => existingStudentNumbers.has(String(s.studentNumber).trim()));
 
-    if (importType === "section" && blocked.length > 0 && toImport.length === 0) {
+    if ((importType === "section" || importType === "block") && blocked.length > 0 && toImport.length === 0) {
       return res.status(409).json({
         message: "Import Blocked: All students in this section already exist",
         blockReason: "all_students_exist",

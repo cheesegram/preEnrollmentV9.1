@@ -13,7 +13,7 @@ import { pushImportNotification } from "../lib/notificationUtils";
 import {
     exportStudentsAsCsv,
     exportStudentsAsXlsx,
-    parseStudentTemplateFile,
+    parseBlockApplicantFile,
     sanitizeFileName,
 } from "../utils/studentFiles";
 import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
@@ -31,6 +31,10 @@ function Dashboard() {
     const [isImporting, setIsImporting] = useState(false);
     const [isEnrolling, setIsEnrolling] = useState(false);
     const [isBatchEnrolling, setIsBatchEnrolling] = useState(false);
+    const [blockEnrollOpen, setBlockEnrollOpen] = useState(false);
+    const [blockPreviewData, setBlockPreviewData] = useState(null);
+    const [blockImportRows, setBlockImportRows] = useState([]);
+    const [isBlockEnrolling, setIsBlockEnrolling] = useState(false);
     const [selectedSectionGroup, setSelectedSectionGroup] = useState(null);
     const [previewData, setPreviewData] = useState(null);
     const [showEnrollmentPreview, setShowEnrollmentPreview] = useState(false);
@@ -328,132 +332,90 @@ function Dashboard() {
 
         try {
             setIsImporting(true);
-            const parsedStudents = await parseStudentTemplateFile(file);
+            const parsedApplicants = await parseBlockApplicantFile(file);
 
-            // Determine import type based on filename
-            const fileName = String(file.name ?? "").toLowerCase();
-            const importType = fileName.includes("section") ? "section" : "student";
+            console.log(`[Frontend] Previewing block enrollment for ${parsedApplicants.length} applicant(s) from ${file.name}`);
 
-            console.log(`[Frontend] Importing ${importType} type with ${parsedStudents.length} students from ${file.name}`);
+            const response = await api.post("/students/block-import-preview", {
+                students: parsedApplicants,
+            });
 
+            setBlockImportRows(parsedApplicants);
+            setBlockPreviewData({
+                fileName: file.name,
+                placements: Array.isArray(response.data?.placements) ? response.data.placements : [],
+                blocked: Array.isArray(response.data?.blocked) ? response.data.blocked : [],
+            });
+            setBlockEnrollOpen(true);
+        } catch (error) {
+            console.error("[Frontend] Block applicant import failed", error);
+
+            const message = error?.response?.data?.message || error?.message || "Failed to read the applicant file";
+            toast.error(message);
+            pushImportNotification(message, "error");
+        } finally {
+            setIsImporting(false);
+            event.target.value = "";
+        }
+    };
+
+    const handleConfirmBlockEnroll = async () => {
+        if (!blockPreviewData || isBlockEnrolling) return;
+
+        try {
+            setIsBlockEnrolling(true);
             const response = await api.post("/students/import", {
-                students: parsedStudents,
-                importType: importType
+                students: blockImportRows,
+                importType: "block",
             });
 
             try {
                 await api.post("/sections/sync");
             } catch (syncError) {
-                console.warn("[Frontend] Section sync after import failed", syncError);
+                console.warn("[Frontend] Section sync after block import failed", syncError);
             }
 
-            console.log(`[Frontend] Import response:`, response.data);
-            await fetchStudents();
-            await fetchSections();
-
-            // Show import results
             const imported = response?.data?.imported ?? 0;
-            const blocked = response?.data?.blocked ?? [];
+            const blocked = Array.isArray(response?.data?.blocked) ? response.data.blocked : [];
 
-            console.log(`[Frontend] Import completed - imported: ${imported}, blocked: ${blocked.length}`);
-
-            if (blocked.length > 0 && importType === "section") {
-                // For section imports, show each blocked student
-                blocked.forEach((student) => {
-                    const name = `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim();
-                    const studentNumber = String(student.studentNumber ?? "").trim();
-                    console.log(`[Frontend] Showing error for blocked student: ${name}`);
-                    const msg = `${studentNumber} - ${name} : Student number already exist in the database`;
-                    toast.error(msg);
-                    pushImportNotification(msg, "error");
-                });
-                if (imported > 0) {
-                    const blockedNumbers = new Set(
-                        blocked.map((student) => String(student.studentNumber ?? "").trim())
-                    );
-                    const importedStudents = parsedStudents.filter(
-                        (student) => !blockedNumbers.has(String(student.studentNumber ?? "").trim())
-                    );
-
-                    importedStudents.forEach((student) => {
-                        const studentNumber = String(student.studentNumber ?? "").trim();
-                        const name = `${String(student.firstName ?? "").trim()} ${String(student.lastName ?? "").trim()}`.trim();
-                        const detailMsg = `${studentNumber} - ${name} : Imported successfully`;
-                        pushImportNotification(detailMsg, "success");
-                    });
-
-                    const msg = `Imported ${imported} student records from section`;
-                    toast.success(msg);
-                }
-            } else {
-                const msg = `Imported ${imported} student records`;
-                toast.success(
-                    msg
-                );
-
-                parsedStudents.forEach((student) => {
-                    const studentNumber = String(student.studentNumber ?? "").trim();
-                    const name = `${String(student.firstName ?? "").trim()} ${String(student.lastName ?? "").trim()}`.trim();
-                    const detailMsg = `${studentNumber} - ${name} : Imported successfully`;
-                    pushImportNotification(detailMsg, "success");
-                });
-            }
-        } catch (error) {
-            console.error("[Frontend] Import failed", error);
-            console.error("[Frontend] Error response:", error?.response?.data);
-
-            const blockReason = error?.response?.data?.blockReason;
-            const message = error?.response?.data?.message;
-            const responseStatus = error?.response?.status;
-
-            console.log(`[Frontend] blockReason: ${blockReason}, status: ${responseStatus}`);
-
-            // Handle 409 Conflict errors (blocked imports)
-            if (responseStatus === 409) {
-                if (blockReason === "student_exists") {
-                    // For student imports, show the blocking error
-                    console.log(`[Frontend] Student import blocked - showing error`);
-                    const duplicates = error?.response?.data?.duplicates ?? [];
-                    if (duplicates.length > 0) {
-                        duplicates.forEach((student) => {
-                            const studentNumber = String(student.studentNumber ?? "").trim();
-                            const name = `${String(student.firstName ?? "").trim()} ${String(student.lastName ?? "").trim()}`.trim();
-                            const msg = `${studentNumber} - ${name} : Student number already exist in the database`;
-                            toast.error(msg);
-                            pushImportNotification(msg, "error");
-                        });
-                    } else {
-                        const msg = "Import Blocked: Student Number Already Exist";
-                        toast.error(msg);
-                        pushImportNotification(msg, "error");
-                    }
-                } else if (blockReason === "all_students_exist") {
-                    // For section imports where all students exist
-                    const blocked = error?.response?.data?.blocked ?? [];
-                    if (blocked.length > 0) {
-                        blocked.forEach((student) => {
-                            const name = `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim();
-                            const studentNumber = String(student.studentNumber ?? "").trim();
-                            console.log(`[Frontend] Showing error for blocked student: ${name}`);
-                            const msg = `${studentNumber} - ${name} : Student number already exist in the database`;
-                            toast.error(msg);
-                            pushImportNotification(msg, "error");
-                        });
-                    } else {
-                        const msg = message || "All students in this section already exist";
-                        toast.error(msg);
-                        pushImportNotification(msg, "error");
-                    }
-                }
-            } else {
-                // Handle other errors
-                const msg = message || error?.message || "Failed to import file";
+            blocked.forEach((student) => {
+                const studentNumber = String(student.studentNumber ?? "").trim();
+                const name = `${String(student.firstName ?? "").trim()} ${String(student.lastName ?? "").trim()}`.trim();
+                const msg = `${studentNumber} - ${name} : Student number already exist in the database`;
                 toast.error(msg);
                 pushImportNotification(msg, "error");
+            });
+
+            const blockedNumbers = new Set(
+                blocked.map((student) => String(student.studentNumber ?? "").trim())
+            );
+
+            blockPreviewData.placements
+                .filter((placement) => !blockedNumbers.has(String(placement.studentNumber ?? "").trim()))
+                .forEach((placement) => {
+                    const detailMsg = `${placement.applicantID} - ${placement.applicant_name} : Enrolled to Section ${placement.assigned_section}`;
+                    pushImportNotification(detailMsg, "success");
+                });
+
+            if (imported > 0) {
+                const msg = `Enrolled ${imported} block applicant(s) from ${blockPreviewData.fileName}`;
+                toast.success(msg);
+                pushImportNotification(msg, "success");
+
+                await fetchStudents();
+                await fetchSections();
+            } else {
+                toast.error("No block applicants were enrolled");
             }
+
+            setBlockEnrollOpen(false);
+            setBlockPreviewData(null);
+            setBlockImportRows([]);
+        } catch (error) {
+            console.error("Block enroll failed", error);
+            toast.error(error?.response?.data?.message || "Failed to enroll block applicants");
         } finally {
-            setIsImporting(false);
-            event.target.value = "";
+            setIsBlockEnrolling(false);
         }
     };
 
@@ -1188,7 +1150,7 @@ function Dashboard() {
                                 {exportableStudents.map((student) => (
                                     <tr key={student._id || student.studentNumber}>
                                         <td className="px-4 py-3">{student.studentNumber}</td>
-                                        <td className="px-4 py-3">{`${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()}</td>
+                                        <td className="px-4 py-3">{`${student.firstName ?? ""} ${student.lastName ?? ""}${student.suffix ? " " + String(student.suffix).trim() : ""}`.trim()}</td>
                                         <td className="px-4 py-3">{getStudentSectionDisplay(student)}</td>
                                         <td className="px-4 py-3">{getStudentYearDisplay(student)}</td>
                                         <td className="px-4 py-3 text-center">
@@ -1273,6 +1235,82 @@ function Dashboard() {
                     >
                         CSV
                     </button>
+                </div>
+            </Modal>
+
+            <Modal open={blockEnrollOpen} onClose={() => { if (!isBlockEnrolling) setBlockEnrollOpen(false); }} title="Confirm Enrollment">
+                <div className="flex flex-col gap-4 max-h-[70vh]">
+                    <div className="shrink-0">
+                        <p className="text-sm text-gray-500">
+                            Review the block applicants from <span className="font-semibold text-gray-700">{blockPreviewData?.fileName}</span> and the section each applicant will be assigned to by the auto sectioning.
+                        </p>
+                        {blockPreviewData?.blocked?.length > 0 && (
+                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                                <p className="text-sm font-semibold text-red-700">
+                                    {blockPreviewData.blocked.length} applicant(s) blocked (student number already exists) and will be skipped
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+                        <table className="min-w-full text-sm">
+                            <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-xs">
+                                <tr>
+                                    <th className="px-4 py-3 text-left">Applicant ID</th>
+                                    <th className="px-4 py-3 text-left">Applicant Name</th>
+                                    <th className="px-4 py-3 text-center">Assigned Section</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {(blockPreviewData?.placements ?? []).length > 0 ? (
+                                    blockPreviewData.placements.map((placement, index) => (
+                                        <tr key={placement.applicantID || placement.studentNumber || index} className="hover:bg-gray-50/80">
+                                            <td className="px-4 py-3 font-medium text-gray-900">{placement.applicantID || "-"}</td>
+                                            <td className="px-4 py-3 text-gray-800">{placement.applicant_name || "-"}</td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                    <i className="fa-solid fa-layer-group text-[0.6rem]" />
+                                                    Section {placement.assigned_year}-{placement.assigned_section}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={3} className="px-4 py-8 text-center text-gray-500">No enrollable applicants found in this file.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="border-t border-gray-200 pt-3 flex items-center justify-end gap-3 shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => setBlockEnrollOpen(false)}
+                            disabled={isBlockEnrolling}
+                            className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirmBlockEnroll}
+                            disabled={isBlockEnrolling || (blockPreviewData?.placements ?? []).length === 0}
+                            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isBlockEnrolling ? (
+                                <>
+                                    <i className="fa-solid fa-spinner fa-spin" />
+                                    Enrolling...
+                                </>
+                            ) : (
+                                <>
+                                    <i className="fa-solid fa-check" />
+                                    Confirm Enroll {(blockPreviewData?.placements ?? []).length > 0 && `(${blockPreviewData.placements.length})`}
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </Modal>
 

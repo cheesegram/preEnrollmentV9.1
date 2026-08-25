@@ -12,6 +12,7 @@ import {
   getStudentSections,
   getStudentBySection,
   importStudents,
+  blockImportPreview,
   updateStudent,
 } from "../controllers/studentsController.js";
 
@@ -26,6 +27,7 @@ router.post("/enroll", enrollFromApplicant);
 router.post("/batch-enroll-preview", batchEnrollPreview);
 router.post("/batch-enroll", batchEnrollFromApplicants);
 router.post("/import", importStudents);
+router.post("/block-import-preview", blockImportPreview);
 router.get("/:id", getStudentById);
 router.post("/", createStudent);
 router.put("/:id", updateStudent);

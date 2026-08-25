@@ -115,3 +115,76 @@ export async function parseStudentTemplateFile(file) {
   if (!parsedStudents.length) throw new Error("No student rows found in file");
   return parsedStudents;
 }
+
+const BLOCK_APPLICANT_REQUIRED_HEADERS = [
+  "applicantid",
+  "firstname",
+  "lastname",
+  "year",
+  "semester",
+];
+
+/**
+ * Parse an uploaded block-applicant file (CSV or XLSX) that follows the
+ * blockApplicantTemplate column layout. The first row is treated as the
+ * header row and every following row becomes an object keyed by the exact
+ * header names (e.g. applicantID, firstName, lastName, ...).
+ */
+export async function parseBlockApplicantFile(file) {
+  const filename = String(file.name ?? "").toLowerCase();
+  let workbook;
+
+  if (filename.endsWith(".xlsx")) {
+    workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  } else if (filename.endsWith(".csv")) {
+    workbook = XLSX.read(await file.text(), { type: "string", cellDates: true });
+  } else {
+    throw new Error("Only CSV and XLSX files are supported");
+  }
+
+  const firstSheet = workbook.SheetNames[0];
+  if (!firstSheet) throw new Error("The selected file is empty");
+
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {
+    header: 1,
+    defval: "",
+    blankrows: false,
+  });
+
+  if (!rows.length) throw new Error("The selected file has no data");
+
+  const headers = (rows[0] || []).map((header, index) => ({
+    key: String(header ?? "").trim(),
+    normalized: normalizeHeader(header),
+    index,
+  }));
+
+  if (!BLOCK_APPLICANT_REQUIRED_HEADERS.every((header) =>
+    headers.some((entry) => entry.normalized === header)
+  )) {
+    throw new Error("Invalid block applicant template headers");
+  }
+
+  const toCellString = (value) => {
+    if (value == null) return "";
+    if (value instanceof Date) {
+      return `${value.getMonth() + 1}/${value.getDate()}/${value.getFullYear()}`;
+    }
+    return String(value).trim();
+  };
+
+  const parsedApplicants = rows
+    .slice(1)
+    .map((row) => {
+      const applicant = {};
+      headers.forEach(({ key, index }) => {
+        if (!key) return;
+        applicant[key] = toCellString(row[index]);
+      });
+      return applicant;
+    })
+    .filter((applicant) => String(applicant.applicantID ?? "").trim());
+
+  if (!parsedApplicants.length) throw new Error("No applicant rows found in file");
+  return parsedApplicants;
+}

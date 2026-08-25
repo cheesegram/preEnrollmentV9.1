@@ -479,7 +479,7 @@ export default function CurriculumTable({ onRegularImportSuccess }) {
                           className={rowClasses}
                         >
                           <td className="px-4 py-3 text-gray-800 font-medium">{student.studentNumber}</td>
-                          <td className="px-4 py-3 text-gray-700">{`${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()}</td>
+                          <td className="px-4 py-3 text-gray-700">{`${student.firstName ?? ""} ${student.lastName ?? ""}${student.suffix ? " " + String(student.suffix).trim() : ""}`.trim()}</td>
                         </tr>
                       );
                     })

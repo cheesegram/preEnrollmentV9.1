@@ -133,6 +133,16 @@ function SectionList() {
     refreshSections();
   }, []);
 
+  const refreshStudents = async () => {
+    try {
+      const studentsResponse = await api.get("/students", { params: { t: Date.now() } });
+      setStudents(Array.isArray(studentsResponse.data) ? studentsResponse.data : []);
+    } catch (studentsError) {
+      console.error("Failed to load students for section view", studentsError);
+      setStudents([]);
+    }
+  };
+
   const getCurrentTotalCapacity = () => {
     if (sections.length > 0 && sections[0].totalCapacity) {
       return Number(sections[0].totalCapacity);
@@ -189,6 +199,11 @@ function SectionList() {
         })).filter((section) => section.blockCount > 0 || section.irregularCount > 0);
         setSections(normalized);
       }
+
+      // The capacity update rebalances students across sections on the
+      // backend, so refresh the local student list right away to keep the
+      // per-section student lists accurate without a page reload.
+      await refreshStudents();
     } catch (error) {
       console.error("Failed to update capacities", error);
       toast.error(error?.response?.data?.message || "Failed to update section capacities");

@@ -1,11 +1,16 @@
 import Section from "../models/Section.js";
 import Student from "../models/Student.js";
 import {
+  computeActualSectionCounts,
   getSectionCapacities,
   getSectionStatus,
+  normalizeSectionName,
+  normalizeSectionValue,
+  normalizeSemester,
   rebalanceSections,
   resolveDefaultSectionCapacities,
   syncAllSectionsFromStudents,
+  syncSectionFromStudents,
 } from "../services/sectionService.js";
 
 export async function syncSectionsFromStudents(req, res) {
@@ -20,7 +25,43 @@ export async function syncSectionsFromStudents(req, res) {
 
 export async function getAllSections(req, res) {
   try {
-    const sections = await Section.find({}).sort({ year: 1, section: 1, semester: 1 }).lean();
+    let sections = await Section.find({}).sort({ year: 1, section: 1, semester: 1 }).lean();
+
+    // Self-healing: recompute the TRUE occupant counts from the students
+    // collection and re-sync any section whose stored counts are stale or
+    // that no longer has any students in it (stale sections are removed).
+    const actualCounts = await computeActualSectionCounts();
+    const keysToSync = new Set();
+
+    for (const section of sections) {
+      const key = `${normalizeSectionValue(section.year)}::${normalizeSemester(section.semester)}::${normalizeSectionName(section.section)}`;
+      const actual = actualCounts.get(key);
+      const blockCount = actual?.blockCount ?? 0;
+      const irregularCount = actual?.irregularCount ?? 0;
+
+      if (blockCount === 0 && irregularCount === 0) {
+        keysToSync.add(key);
+        continue;
+      }
+
+      if (
+        Number(section.blockCount ?? 0) !== blockCount ||
+        Number(section.irregularCount ?? 0) !== irregularCount
+      ) {
+        keysToSync.add(key);
+      }
+    }
+
+    if (keysToSync.size > 0) {
+      await Promise.all(
+        [...keysToSync].map((key) => {
+          const [year, semester, section] = key.split("::");
+          return syncSectionFromStudents({ year, semester, section });
+        })
+      );
+      sections = await Section.find({}).sort({ year: 1, section: 1, semester: 1 }).lean();
+    }
+
     res.status(200).json(sections);
   } catch (error) {
     console.error("Error in getAllSections controller", error);

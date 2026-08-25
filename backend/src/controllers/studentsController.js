@@ -6,6 +6,7 @@ import {
   addStudentToSectionState,
   createSectionState,
   getSectionStatus,
+  getStudentSectionIdentities,
   normalizeSectionName,
   normalizeSemester,
   resolveDefaultSectionCapacities,
@@ -680,8 +681,24 @@ export async function createStudent(req, res) {
 
 export async function updateStudent(req, res) {
   try {
+    const previousStudent = await Student.findById(req.params.id).lean();
+    if (!previousStudent) return res.status(404).json({ message: "Student not found" });
+
     const updatedStudent = await Student.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updatedStudent) return res.status(404).json({ message: "Student not found" });
+
+    // Re-sync every section the student previously and currently occupies so
+    // counts stay accurate and sections emptied by this change are removed.
+    const identities = new Map();
+    for (const identity of [
+      ...getStudentSectionIdentities(previousStudent),
+      ...getStudentSectionIdentities(updatedStudent.toObject?.() ?? updatedStudent),
+    ]) {
+      const key = `${identity.year}::${identity.semester}::${identity.section}`;
+      identities.set(key, identity);
+    }
+    await Promise.all([...identities.values()].map((identity) => syncSectionFromStudents(identity)));
+
     res.status(200).json(updatedStudent);
   } catch (error) {
     console.error("Error in updateStudent controller", error);
@@ -693,6 +710,17 @@ export async function deleteStudent(req, res) {
   try {
     const deletedStudent = await Student.findByIdAndDelete(req.params.id);
     if (!deletedStudent) return res.status(404).json({ message: "Student not found" });
+
+    // Re-sync every section the deleted student occupied (main placement plus
+    // irregular placements) so their counts drop and any section left with no
+    // more students is removed automatically.
+    try {
+      const identities = getStudentSectionIdentities(deletedStudent.toObject?.() ?? deletedStudent);
+      await Promise.all(identities.map((identity) => syncSectionFromStudents(identity)));
+    } catch (syncError) {
+      console.error("Error syncing sections after student deletion", syncError);
+    }
+
     res.status(200).json({ message: "Student deleted successfully!" });
   } catch (error) {
     console.error("Error in deleteStudent controller", error);
@@ -1217,6 +1245,16 @@ export async function importStudents(req, res) {
       const sectionOps = [];
       for (const sections of sectionGroups.values()) {
         for (const section of sections) {
+          // Sections with no more students in them are removed automatically.
+          if (Number(section.blockCount ?? 0) <= 0 && Number(section.irregularCount ?? 0) <= 0) {
+            sectionOps.push({
+              deleteOne: {
+                filter: { year: section.year, section: section.section, semester: section.semester },
+              },
+            });
+            continue;
+          }
+
           sectionOps.push({
             updateOne: {
               filter: { year: section.year, section: section.section, semester: section.semester },

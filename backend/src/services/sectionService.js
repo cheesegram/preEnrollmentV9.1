@@ -183,6 +183,14 @@ export async function syncSectionFromStudents(sectionIdentity) {
     Student.countDocuments(irregularOccupantQuery),
   ]);
 
+  // Sections with no more students in them are removed automatically.
+  if (blockCount === 0 && irregularCount === 0) {
+    if (current) {
+      await Section.findOneAndDelete(identity);
+    }
+    return null;
+  }
+
   let blockCapacity, irregularCapacity, totalCapacity;
   if (current && current.blockCapacity != null && current.irregularCapacity != null) {
     blockCapacity = current.blockCapacity;
@@ -212,6 +220,51 @@ export async function syncSectionFromStudents(sectionIdentity) {
   );
 
   return result;
+}
+
+/**
+ * Build the list of section identities a student occupies: their main
+ * placement (year + section + semester) plus every entry inside their
+ * irregularSection / irregularYear arrays.
+ */
+export function getStudentSectionIdentities(student = {}) {
+  const identities = new Map();
+
+  const pushIdentity = (year, semester, section) => {
+    const normalizedYear = normalizeSectionValue(year);
+    const normalizedSection = normalizeSectionName(section);
+    if (!normalizedYear || !normalizedSection) return;
+    const key = `${normalizedYear}::${normalizeSectionValue(semester)}::${normalizedSection}`;
+    identities.set(key, {
+      year: normalizedYear,
+      semester: normalizeSemester(semester),
+      section: normalizedSection,
+    });
+  };
+
+  pushIdentity(student.year, student.semester, student.section);
+
+  const rawSections = Array.isArray(student.irregularSection)
+    ? student.irregularSection
+    : student.irregularSection != null && student.irregularSection !== ""
+      ? [student.irregularSection]
+      : [];
+  const rawYears = Array.isArray(student.irregularYear)
+    ? student.irregularYear
+    : student.irregularYear != null && student.irregularYear !== ""
+      ? [student.irregularYear]
+      : [];
+
+  rawSections.forEach((section, index) => {
+    pushIdentity(rawYears[index] ?? rawYears[0], student.semester, section);
+  });
+  if (rawSections.length === 1) {
+    for (const year of rawYears.slice(1)) {
+      pushIdentity(year, student.semester, rawSections[0]);
+    }
+  }
+
+  return [...identities.values()];
 }
 
 export async function rebalanceSections(year, semester) {
@@ -338,6 +391,71 @@ export async function rebalanceSections(year, semester) {
   return Section.find(filter).sort({ year: 1, section: 1, semester: 1 }).lean();
 }
 
+/**
+ * Compute the TRUE number of students occupying every section straight from
+ * the students collection, keyed by "year::semester::section".  Used to detect
+ * sections whose stored counts have gone stale or that no longer have any
+ * students in them.
+ */
+export async function computeActualSectionCounts() {
+  const counts = new Map();
+
+  const bumpCount = (year, semester, section, status) => {
+    const normalizedYear = normalizeSectionValue(year);
+    const normalizedSection = normalizeSectionName(section);
+    if (!normalizedYear || !normalizedSection) return;
+    const key = `${normalizedYear}::${normalizeSemester(semester)}::${normalizedSection}`;
+    const entry = counts.get(key) ?? {
+      identity: {
+        year: normalizedYear,
+        semester: normalizeSemester(semester),
+        section: normalizedSection,
+      },
+      blockCount: 0,
+      irregularCount: 0,
+    };
+    if (normalizeSectionValue(status).toLowerCase() === "irregular") {
+      entry.irregularCount += 1;
+    } else {
+      entry.blockCount += 1;
+    }
+    counts.set(key, entry);
+  };
+
+  const occupants = await Student.find(
+    { status: { $in: ["Block", "Irregular"] } },
+    { year: 1, semester: 1, section: 1, status: 1, irregularSection: 1, irregularYear: 1 }
+  ).lean();
+
+  for (const student of occupants) {
+    bumpCount(student.year, student.semester, student.section, student.status);
+
+    if (normalizeSectionValue(student.status).toLowerCase() !== "irregular") continue;
+
+    const rawSections = Array.isArray(student.irregularSection)
+      ? student.irregularSection
+      : student.irregularSection != null && student.irregularSection !== ""
+        ? [student.irregularSection]
+        : [];
+    const rawYears = Array.isArray(student.irregularYear)
+      ? student.irregularYear
+      : student.irregularYear != null && student.irregularYear !== ""
+        ? [student.irregularYear]
+        : [];
+
+    rawSections.forEach((section, index) => {
+      bumpCount(rawYears[index] ?? rawYears[0], student.semester, section, "Irregular");
+    });
+    if (rawSections.length === 1) {
+      for (const year of rawYears.slice(1)) {
+        bumpCount(year, student.semester, rawSections[0], "Irregular");
+      }
+    }
+  }
+
+  return counts;
+}
+
 export async function syncAllSectionsFromStudents() {
   const groups = await Student.aggregate([
     {
@@ -361,6 +479,23 @@ export async function syncAllSectionsFromStudents() {
   await Promise.all(
     groups.map(({ _id }) => syncSectionFromStudents(_id))
   );
+
+  // Remove any sections that no longer have students in them (e.g. the last
+  // student was deleted or moved elsewhere).  Uses TRUE counts recomputed
+  // from the students collection so stale stored counts cannot keep an empty
+  // section alive.
+  const allSections = await Section.find({}).lean();
+  const actualCounts = await computeActualSectionCounts();
+  const emptySections = allSections.filter((section) => {
+    const key = `${normalizeSectionValue(section.year)}::${normalizeSemester(section.semester)}::${normalizeSectionName(section.section)}`;
+    const actual = actualCounts.get(key);
+    return !actual || (actual.blockCount === 0 && actual.irregularCount === 0);
+  });
+  if (emptySections.length > 0) {
+    await Section.deleteMany({
+      _id: { $in: emptySections.map((section) => section._id) },
+    });
+  }
 
   return Section.find({}).sort({ year: 1, section: 1, semester: 1 }).lean();
 }

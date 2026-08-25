@@ -107,12 +107,10 @@ function AppHeader({ onOpenNavigation }) {
               title="System Notifications & Activity Log"
             >
               <i className="fa-solid fa-bell text-base text-slate-700" />
-              {unreadImportNotifications > 0 ? (
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[0.65rem] font-extrabold text-white shadow-md animate-pulse">
-                  {Math.min(unreadImportNotifications, 99)}
+              {unreadImportNotifications > 0 && (
+                <span className="absolute -right-1 -bottom-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[0.65rem] font-extrabold text-white ring-2 ring-white shadow-md">
+                  {unreadImportNotifications > 99 ? "99+" : unreadImportNotifications}
                 </span>
-              ) : (
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-emerald-600 ring-2 ring-white" />
               )}
             </button>
           </div>

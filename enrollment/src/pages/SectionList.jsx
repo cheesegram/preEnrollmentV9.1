@@ -229,12 +229,24 @@ function SectionList() {
   const handleManualBlockChange = (e) => {
     const raw = e.target.value;
     setManualBlockCapacity(raw);
+    if (manualError) setManualError("");
   };
 
   const handleManualIrregularChange = (e) => {
     const raw = e.target.value;
     setManualIrregularCapacity(raw);
+    if (manualError) setManualError("");
   };
+
+  const parsedManualBlockCapacity =
+    manualBlockCapacity === "" ? NaN : parseInt(manualBlockCapacity, 10);
+  const parsedManualIrregularCapacity =
+    manualIrregularCapacity === "" ? NaN : parseInt(manualIrregularCapacity, 10);
+  const manualInputsValid =
+    !Number.isNaN(parsedManualBlockCapacity) &&
+    !Number.isNaN(parsedManualIrregularCapacity) &&
+    parsedManualBlockCapacity > 0 &&
+    parsedManualIrregularCapacity > 0;
 
   const handleManualConfirm = () => {
     const block = manualBlockCapacity === "" ? 0 : parseInt(manualBlockCapacity, 10);
@@ -485,9 +497,9 @@ function SectionList() {
                       handleManualConfirm();
                     }
                   }}
-                  disabled={manualMode && !!manualError}
+                  disabled={manualMode && !manualInputsValid}
                   className={`inline-flex items-center gap-2 rounded-xl px-5 py-2 text-xs font-extrabold text-white transition-all shadow-xs ${
-                    manualMode && manualError
+                    manualMode && !manualInputsValid
                       ? "bg-slate-400 cursor-not-allowed"
                       : "bg-emerald-800 hover:bg-emerald-900 active:scale-95"
                   }`}

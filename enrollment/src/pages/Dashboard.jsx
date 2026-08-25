@@ -9,6 +9,7 @@ import QuickActionCard from "../components/ui/QuickActionCard";
 import LoadingState from "../components/ui/LoadingState";
 import Panel from "../components/ui/Panel";
 import { buildScheduleMap } from "../lib/scheduleUtils";
+import { pushImportNotification } from "../lib/notificationUtils";
 import {
     exportStudentsAsCsv,
     exportStudentsAsXlsx,
@@ -16,9 +17,6 @@ import {
     sanitizeFileName,
 } from "../utils/studentFiles";
 import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
-
-const IMPORT_NOTIFICATION_STORAGE_KEY = "dashboardImportNotificationLog";
-const IMPORT_NOTIFICATION_UNREAD_KEY = "dashboardImportNotificationUnreadCount";
 
 function Dashboard() {
     const [modalOpen, setModalOpen] = useState(false);
@@ -44,61 +42,9 @@ function Dashboard() {
     const [exportTarget, setExportTarget] = useState(null);
     const [studentExportQuery, setStudentExportQuery] = useState("");
     const [sectionExportQuery, setSectionExportQuery] = useState("");
-    const [importLogOpen, setImportLogOpen] = useState(false);
-    const [importNotifications, setImportNotifications] = useState(() => {
-        try {
-            const raw = window.localStorage.getItem(IMPORT_NOTIFICATION_STORAGE_KEY);
-            const parsed = JSON.parse(raw ?? "[]");
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    }); 
     const [atPageBottom, setAtPageBottom] = useState(false);
     const [bottomSheetDismissed, setBottomSheetDismissed] = useState(false);
-    const [unreadImportNotifications, setUnreadImportNotifications] = useState(() => {
-        try {
-            const raw = window.localStorage.getItem(IMPORT_NOTIFICATION_UNREAD_KEY);
-            const parsed = Number(raw ?? 0);
-            return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-        } catch {
-            return 0;
-        }
-    });
     const importInputRef = useRef(null);
-
-    const pushImportNotification = (message, type = "info") => {
-        const entry = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            message: String(message ?? ""),
-            type,
-            createdAt: new Date().toISOString(),
-        };
-
-        setImportNotifications((prev) => {
-            const next = [entry, ...prev].slice(0, 200);
-            window.localStorage.setItem(IMPORT_NOTIFICATION_STORAGE_KEY, JSON.stringify(next));
-            return next;
-        });
-        setUnreadImportNotifications((prev) => {
-            const nextUnread = prev + 1;
-            window.localStorage.setItem(IMPORT_NOTIFICATION_UNREAD_KEY, String(nextUnread));
-            return nextUnread;
-        });
-    };
-
-    const clearImportNotifications = () => {
-        setImportNotifications([]);
-        setUnreadImportNotifications(0);
-        window.localStorage.removeItem(IMPORT_NOTIFICATION_STORAGE_KEY);
-        window.localStorage.setItem(IMPORT_NOTIFICATION_UNREAD_KEY, "0");
-    };
-
-    const openImportLog = () => {
-        setImportLogOpen(true);
-        setUnreadImportNotifications(0);
-        window.localStorage.setItem(IMPORT_NOTIFICATION_UNREAD_KEY, "0");
-    };
 
     const isNewStudent = (student) => String(student.year) === "1" && String(student.semester) === "1st" && student.status !== "Pending";
 
@@ -671,7 +617,6 @@ function Dashboard() {
         !loading &&
         recentNonPending.length > 0 &&
         !modalOpen &&
-        !importLogOpen &&
         !exportTypeOpen &&
         !studentExportOpen &&
         !sectionExportOpen &&
@@ -738,25 +683,8 @@ function Dashboard() {
         <>
             <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-8 p-4 sm:p-6 lg:p-8">
                 <PageHeader
-                    eyebrow="Overview"
                     title="Enrollment Dashboard"
                     description="Monitor student registration, admission, and enrollment activity from one place."
-                    actions={
-                        <button
-                            type="button"
-                            onClick={openImportLog}
-                            className="relative grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
-                            aria-label="Open import notification log"
-                            title="Import notification log"
-                        >
-                            <i className="fa-regular fa-bell" />
-                            {unreadImportNotifications > 0 && (
-                                <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full bg-rose-600 px-1 text-center text-[0.65rem] font-bold leading-5 text-white">
-                                    {Math.min(unreadImportNotifications, 99)}
-                                </span>
-                            )}
-                        </button>
-                    }
                 />
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -823,17 +751,17 @@ function Dashboard() {
                 </div>
 
                 <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                        <div>
-                            <h3 className="text-lg font-extrabold tracking-tight text-slate-900">Recently registered students</h3>
-                            <p className="mt-1 text-sm text-slate-500">The latest non-pending student records.</p>
+                    <div className="flex items-start justify-between gap-3 sm:items-end">
+                        <div className="min-w-0 flex-1">
+                            <h3 className="truncate text-base font-extrabold tracking-tight text-slate-900 sm:text-lg">Recently registered students</h3>
+                            <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">The latest non-pending student records.</p>
                         </div>
                         <button
                             type="button"
                             onClick={() => openModal("All Students")}
-                            className="inline-flex items-center gap-2 self-start rounded-xl px-3 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-50 sm:self-auto"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-1.5 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100 hover:text-emerald-900 active:scale-95 sm:px-3.5 sm:py-2 sm:text-sm"
                         >
-                            View all
+                            <span>View all</span>
                             <i className="fa-solid fa-arrow-right text-xs" />
                         </button>
                     </div>
@@ -860,7 +788,7 @@ function Dashboard() {
                         : "pointer-events-none opacity-0"
                     }`} 
                 aria-hidden={!bottomSheetVisible}
-                inert={bottomSheetVisible ? undefined : ""}
+                inert={!bottomSheetVisible}
             >
                 <div className="absolute inset-0 bg-slate-950/20" aria-hidden="true" />
 
@@ -1203,56 +1131,6 @@ function Dashboard() {
                             <StudentsTable students={modalStudents} scheduleMap={scheduleMap} isPendingView={false} />
                         )}
                     </div>
-                </div>
-            </Modal>
-
-            <Modal open={importLogOpen} onClose={() => setImportLogOpen(false)} title="Notifications" size="md">
-                <div className="flex flex-col gap-3 max-h-[70vh] min-h-[18rem]">
-                    <div className="flex items-center justify-end">
-                        <button
-                            type="button"
-                            onClick={clearImportNotifications}
-                            disabled={!importNotifications.length}
-                            className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Clear Log
-                        </button>
-                    </div>
-                    {importNotifications.length ? (
-                        <div className="overflow-y-auto rounded-xl border border-gray-200 bg-white">
-                            <ul className="divide-y divide-gray-100">
-                                {importNotifications.map((item) => {
-                                    const when = new Date(item.createdAt);
-                                    const timeLabel = Number.isNaN(when.getTime())
-                                        ? "Unknown time"
-                                        : when.toLocaleString("en-US", {
-                                            month: "short",
-                                            day: "numeric",
-                                            year: "numeric",
-                                            hour: "numeric",
-                                            minute: "2-digit",
-                                        });
-                                    const toneClass = item.type === "error"
-                                        ? "border-red-200 bg-red-50 text-red-700"
-                                        : "border-emerald-200 bg-emerald-50 text-emerald-700";
-
-                                    return (
-                                        <li key={item.id} className="p-3 sm:p-4">
-                                            <div className={`rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-wide w-fit ${toneClass}`}>
-                                                {item.type === "error" ? "Blocked/Error" : "Success"}
-                                            </div>
-                                            <p className="mt-2 text-sm text-gray-800 leading-relaxed">{item.message}</p>
-                                            <p className="mt-1 text-xs text-gray-500">{timeLabel}</p>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </div>
-                    ) : (
-                        <div className="flex-1 rounded-xl border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center p-6 text-sm text-gray-500 text-center">
-                            No import notifications yet.
-                        </div>
-                    )}
                 </div>
             </Modal>
 

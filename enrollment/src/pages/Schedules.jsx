@@ -314,7 +314,6 @@ function Schedules() {
   return (
     <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
-        eyebrow="IITI Enrollment System"
         title="Schedules"
         description="Generate, review, edit, and publish section schedules for each semester and school year."
       />

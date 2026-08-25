@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import toast from "react-hot-toast";
 import api from "../lib/axios";
-import { buildStudentScheduleKeys, formatScheduleTimeRange } from "../lib/scheduleUtils";
+import { buildScheduleMap, buildStudentScheduleKeys, formatScheduleTimeRange } from "../lib/scheduleUtils";
 import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
 import Pagination from "./ui/Pagination";
 
@@ -18,7 +19,6 @@ const FIELD_LABELS = {
   semester: "Semester",
   status: "Status",
   email: "Email",
-  password: "Password",
   schoolYear: "School Year",
   birthDate: "Birth Date",
   contactNumber: "Contact Number",
@@ -131,8 +131,15 @@ function humanizeKey(key) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const EXCLUDED_DETAIL_KEYS = ["_id", "__v", "password"];
+
 function formatDetailValue(key, value) {
   if (value === null || value === undefined || value === "") return "—";
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    return value.join(", ");
+  }
 
   if (key === "createdAt" || key === "updatedAt") {
     const date = new Date(value);
@@ -148,7 +155,10 @@ function formatDetailValue(key, value) {
   }
 
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  if (typeof value === "object") {
+    if (Object.keys(value).length === 0) return "—";
+    return JSON.stringify(value, null, 2);
+  }
   return String(value);
 }
 
@@ -156,7 +166,12 @@ function getDetailEntries(student) {
   if (!student) return [];
 
   return Object.entries(student)
-    .filter(([key]) => !["_id", "__v"].includes(key))
+    .filter(([key]) => {
+      const lowerKey = key.toLowerCase();
+      if (EXCLUDED_DETAIL_KEYS.some((ex) => ex.toLowerCase() === lowerKey)) return false;
+      if (lowerKey.includes("password")) return false;
+      return true;
+    })
     .sort(([leftKey], [rightKey]) => {
       const leftIndex = FIELD_ORDER.indexOf(leftKey);
       const rightIndex = FIELD_ORDER.indexOf(rightKey);
@@ -166,6 +181,92 @@ function getDetailEntries(student) {
       if (normalizedLeft !== normalizedRight) return normalizedLeft - normalizedRight;
       return leftKey.localeCompare(rightKey);
     });
+}
+
+function getStatusBadge(status) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (normalized === "block" || normalized.includes("enrolled")) {
+    return {
+      label: status || "Enrolled",
+      bg: "bg-blue-100 text-blue-900 border-blue-300 font-extrabold",
+      dot: "bg-blue-600",
+    };
+  }
+  if (normalized.includes("irregular") || normalized.includes("overloaded")) {
+    return {
+      label: status || "Irregular",
+      bg: "bg-amber-100 text-amber-950 border-amber-300 font-extrabold",
+      dot: "bg-amber-600",
+    };
+  }
+  if (normalized.includes("pending") || normalized.includes("to be admitted") || normalized.includes("progress")) {
+    return {
+      label: status || "Pending",
+      bg: "bg-purple-100 text-purple-950 border-purple-300 font-extrabold",
+      dot: "bg-purple-600",
+    };
+  }
+  if (normalized.includes("regular") || normalized.includes("admitted")) {
+    return {
+      label: status || "Regular",
+      bg: "bg-emerald-100 text-emerald-950 border-emerald-300 font-extrabold",
+      dot: "bg-emerald-600",
+    };
+  }
+  return {
+    label: status || "Active",
+    bg: "bg-slate-200 text-slate-900 border-slate-300 font-extrabold",
+    dot: "bg-slate-500",
+  };
+}
+
+function DataField({ label, value, icon, isHighlight }) {
+  const displayVal = formatDetailValue(label, value);
+  const isEmpty = displayVal === "—";
+
+  return (
+    <div className={`flex flex-col gap-1 rounded-xl p-3.5 transition ${isHighlight ? "bg-emerald-50/50 border border-emerald-100" : "bg-slate-50/70 border border-slate-100 hover:bg-slate-50"}`}>
+      <span className="flex items-center gap-1.5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-500">
+        {icon && <i className={`${icon} text-slate-400 text-xs`} />}
+        {FIELD_LABELS[label] ?? humanizeKey(label)}
+      </span>
+      <span className={`text-sm font-semibold break-words ${isEmpty ? "text-slate-400 italic" : "text-slate-800"}`}>
+        {displayVal}
+      </span>
+    </div>
+  );
+}
+
+function SectionCard({ title, icon, children }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-3.5 flex items-center gap-2 border-b border-slate-100 pb-3">
+        {icon && (
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
+            <i className={`${icon} text-xs`} />
+          </span>
+        )}
+        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">{title}</h4>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function BooleanBadge({ label, value }) {
+  const isTrue = Boolean(value === true || String(value).toLowerCase() === "yes" || String(value) === "1");
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+      <span className="text-xs font-semibold text-slate-700">{label}</span>
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${isTrue ? "bg-emerald-100 text-emerald-800" : "bg-slate-200/70 text-slate-600"
+          }`}
+      >
+        <i className={`fa-solid ${isTrue ? "fa-circle-check text-emerald-600" : "fa-circle-xmark text-slate-400"} text-xs`} />
+        {isTrue ? "Yes" : "No"}
+      </span>
+    </div>
+  );
 }
 
 function StudentsTable({
@@ -181,6 +282,40 @@ function StudentsTable({
 }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [detailStudent, setDetailStudent] = useState(null);
+  const [activeDetailTab, setActiveDetailTab] = useState("overview");
+  const [rawSearchQuery, setRawSearchQuery] = useState("");
+
+  const tabsContainerRef = useRef(null);
+  const [isDraggingTabs, setIsDraggingTabs] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeftPos, setScrollLeftPos] = useState(0);
+
+  const handleTabsMouseDown = (e) => {
+    if (!tabsContainerRef.current) return;
+    setIsDraggingTabs(true);
+    setStartX(e.pageX - tabsContainerRef.current.offsetLeft);
+    setScrollLeftPos(tabsContainerRef.current.scrollLeft);
+  };
+
+  const handleTabsMouseUpOrLeave = () => {
+    setIsDraggingTabs(false);
+  };
+
+  const handleTabsMouseMove = (e) => {
+    if (!isDraggingTabs || !tabsContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - tabsContainerRef.current.offsetLeft;
+    const walk = (x - startX) * 1.5;
+    tabsContainerRef.current.scrollLeft = scrollLeftPos - walk;
+  };
+
+  const handleTabsWheel = (e) => {
+    if (!tabsContainerRef.current) return;
+    if (e.deltaY !== 0) {
+      tabsContainerRef.current.scrollLeft += e.deltaY;
+    }
+  };
+
   const [selectedSubjectView, setSelectedSubjectView] = useState(null);
   const [selectedSubjectSubjects, setSelectedSubjectSubjects] = useState([]);
   const [subjectLoading, setSubjectLoading] = useState(false);
@@ -203,36 +338,49 @@ function StudentsTable({
     setCurrentPage(1);
   }, [students, isPendingView]);
 
+  useEffect(() => {
+    if (detailStudent) {
+      setActiveDetailTab("overview");
+      setRawSearchQuery("");
+    }
+  }, [detailStudent]);
+
   const normalizeYearKey = (year) => {
+    if (!year) return "1st";
     const raw = String(year ?? "").trim().toLowerCase();
     const map = {
       1: "1st",
+      "1": "1st",
       "1st": "1st",
       first: "1st",
       "first year": "1st",
       2: "2nd",
+      "2": "2nd",
       "2nd": "2nd",
       second: "2nd",
       "second year": "2nd",
       3: "3rd",
+      "3": "3rd",
       "3rd": "3rd",
       third: "3rd",
       "third year": "3rd",
       4: "4th",
+      "4": "4th",
       "4th": "4th",
       fourth: "4th",
       "fourth year": "4th",
     };
-    return map[raw] || null;
+    return map[raw] || "1st";
   };
 
   const getSemesterIndex = (semester) => {
+    if (!semester) return 0;
     const raw = String(semester ?? "").trim().toLowerCase();
     if (["1", "1st", "first", "first semester", "1st semester"].includes(raw)) return 0;
     if (["2", "2nd", "second", "second semester", "2nd semester"].includes(raw)) return 1;
-    return -1;
+    return 0;
   };
- 
+
   const handleOpenStudentSubjects = async (student, view) => {
     setSelectedStudent(student);
     setSelectedSubjectView(view);
@@ -240,49 +388,66 @@ function StudentsTable({
     setSubjectError("");
     setSubjectLoading(true);
 
-    // 
     try {
       if (view === "schedule") {
         const scheduleKeys = buildStudentScheduleKeys(student);
+        let activeMap = scheduleMap;
 
-        if (!scheduleMap || scheduleMap.size === 0 || scheduleKeys.length === 0) {
-          setSubjectError("Schedule data is not available yet.");
-          console.log("[StudentsTable] Schedule data not ready or map is empty for lookup.");
+        // Fallback fetch if scheduleMap is missing or empty
+        if (!activeMap || activeMap.size === 0) {
+          try {
+            const schedulesRes = await api.get("/schedules");
+            const availableSchedules = Array.isArray(schedulesRes.data) ? schedulesRes.data : [];
+            if (availableSchedules.length > 0) {
+              const scheduleDetailResults = await Promise.allSettled(
+                availableSchedules.map(async (sched) => {
+                  if (!sched?._id) return null;
+                  const detailsRes = await api.get(`/schedules/${sched._id}`);
+                  return detailsRes.data;
+                })
+              );
+              const scheduleDetails = scheduleDetailResults
+                .map((res) => (res.status === "fulfilled" ? res.value : null))
+                .filter(Boolean);
+              activeMap = buildScheduleMap(scheduleDetails);
+            }
+          } catch (err) {
+            console.error("Error fetching fallback schedules:", err);
+          }
+        }
+
+        if (!activeMap || activeMap.size === 0 || scheduleKeys.length === 0) {
+          setSubjectError("Schedule data is not available yet for this section.");
+          setSubjectLoading(false);
           return;
         }
 
-        const lookupKey = scheduleKeys.find((key) => scheduleMap.has(key));
-        const scheduleForStudent = lookupKey ? scheduleMap.get(lookupKey) : null;
-
-        console.log(`[StudentsTable] Schedule lookup keys: ${scheduleKeys.join(", ")}`);
-        console.log(`[StudentsTable] Schedule found for lookup key '${lookupKey}': ${!!scheduleForStudent}`);
+        const lookupKey = scheduleKeys.find((key) => activeMap.has(key));
+        const scheduleForStudent = lookupKey ? activeMap.get(lookupKey) : null;
 
         if (!scheduleForStudent || scheduleForStudent.length === 0) {
-          setSubjectError(`No schedule found for this student's section, year, and semester.`);
-          console.log(`[StudentsTable] No schedule found for any lookup key: ${scheduleKeys.join(", ")}.`);
+          setSubjectError(`No schedule found for section "${getStudentSectionDisplay(student)}" (Year ${getStudentYearDisplay(student)}, Semester ${student.semester || "1st"}).`);
+          setSubjectLoading(false);
           return;
         }
+
         setSelectedSubjectSubjects(scheduleForStudent);
-        return; // Exit the function after handling schedule view
+        setSubjectLoading(false);
+        return;
       }
 
-      // --- Curriculum logic starts here ---
+      // CURRICULUM VIEW
       const isIrregular = String(student?.status ?? "").trim().toLowerCase() === "irregular";
-      console.log(`[StudentsTable:Curriculum] Student Status: '${student?.status}', Is Irregular: ${isIrregular}`); //
-
       if (isIrregular) {
         const curriculumId = String(student?.studentNumber ?? "").trim();
-        console.log(`[StudentsTable:Curriculum] Irregular student, studentNumber: '${curriculumId}'`); //
         if (!curriculumId) {
           setSubjectError("Student number is required to load this view.");
-          console.log("[StudentsTable:Curriculum] Error: Student number missing for irregular student."); //
+          setSubjectLoading(false);
           return;
-        } 
- 
-        console.log(`[StudentsTable:Curriculum] Fetching irregular curriculum for studentNumber: '${curriculumId}'`);
+        }
+
         const response = await api.get(`/curriculum/doc/${encodeURIComponent(curriculumId)}`);
         const curriculumDoc = response?.data;
-        console.log(`[StudentsTable:Curriculum] Irregular curriculum API response:`, curriculumDoc); //
         const subjects = Array.isArray(curriculumDoc?.subjects)
           ? curriculumDoc.subjects
           : Array.isArray(curriculumDoc?.semesters)
@@ -292,46 +457,35 @@ function StudentsTable({
             : [];
 
         if (!subjects.length) {
-          setSubjectError("No subjects found for this student.");
-          console.log("[StudentsTable:Curriculum] Error: No subjects found in irregular curriculum document."); //
+          setSubjectError("No custom curriculum subjects found for this irregular student.");
+          setSubjectLoading(false);
           return;
         }
 
         setSelectedSubjectSubjects(subjects);
+        setSubjectLoading(false);
         return;
       }
 
-      // Regular student curriculum logic
       const yearKey = normalizeYearKey(student?.year);
       const semesterIndex = getSemesterIndex(student?.semester);
-      console.log(`[StudentsTable:Curriculum] Regular student. Raw Year: '${student?.year}', Raw Semester: '${student?.semester}'`); //
-      console.log(`[StudentsTable:Curriculum] Normalized YearKey: '${yearKey}', SemesterIndex: ${semesterIndex}`); //
-
-      if (!yearKey || semesterIndex < 0) {
-        setSubjectError("Curriculum data is missing for this student's year or semester, or the values are unrecognized.");
-        console.log(`[StudentsTable:Curriculum] Error: Invalid or missing yearKey ('${yearKey}') or semesterIndex (${semesterIndex}) for regular student.`); //
-        return;
-      }
 
       let curriculumDoc = curriculumCache[yearKey];
       if (!curriculumDoc) {
-        console.log(`[StudentsTable:Curriculum] Fetching regular curriculum for yearKey: '${yearKey}'`); //
         const response = await api.get(`/curriculum/${yearKey}`);
         curriculumDoc = response.data;
-        console.log(`[StudentsTable:Curriculum] Regular curriculum API response:`, curriculumDoc); //
         setCurriculumCache((previous) => ({ ...previous, [yearKey]: curriculumDoc }));
       }
 
       const semesterSubjects = curriculumDoc?.semesters?.[semesterIndex]?.subjects;
       if (!Array.isArray(semesterSubjects) || semesterSubjects.length === 0) {
-        setSubjectError("No subjects found for this semester.");
-        console.log("[StudentsTable:Curriculum] Error: No subjects found for the semester in regular curriculum document."); //
+        setSubjectError("No curriculum subjects found for this year and semester.");
+        setSubjectLoading(false);
         return;
       }
 
       setSelectedSubjectSubjects(semesterSubjects);
     } catch (error) {
-      console.error("[StudentsTable:Curriculum] Failed to load subject data:", error);
       setSubjectError("Failed to load subject data. " + (error.response?.data?.message || error.message || ""));
     } finally {
       setSubjectLoading(false);
@@ -350,27 +504,51 @@ function StudentsTable({
     setCurrentPage(1);
   };
 
-  const getStatusStyle = (status) => {
-    const normalizedStatus = status?.toLowerCase() || "";
-
-    if (normalizedStatus === "block") return "bg-blue-100 text-blue-700 font-bold";
-    if (normalizedStatus.includes("enrolled")) return "bg-blue-100 text-blue-700 font-bold";
-    if (normalizedStatus.includes("irregular") || normalizedStatus.includes("overloaded")) {
-      return "bg-red-100 text-red-700 font-bold";
-    }
-    if (normalizedStatus.includes("pending") || normalizedStatus.includes("progress")) {
-      return "bg-yellow-100 text-yellow-700 font-bold";
-    }
-    if (normalizedStatus.includes("regular") || normalizedStatus.includes("balance")) {
-      return "bg-green-100 text-green-700 font-bold";
-    }
-
-    return "bg-gray-100 text-gray-700 font-bold";
-  };
-
   const baseColumnCount = isPendingView ? 3 : 8;
   const columnCount = baseColumnCount + (showAuditColumns && !isPendingView ? 2 : 0);
-  const detailEntries = getDetailEntries(detailStudent);
+  const detailEntries = useMemo(() => getDetailEntries(detailStudent), [detailStudent]);
+
+  const filteredRawEntries = useMemo(() => {
+    if (!rawSearchQuery.trim()) return detailEntries;
+    const q = rawSearchQuery.trim().toLowerCase();
+    return detailEntries.filter(([key, val]) => {
+      const label = FIELD_LABELS[key] ?? humanizeKey(key);
+      const strVal = formatDetailValue(key, val);
+      return label.toLowerCase().includes(q) || strVal.toLowerCase().includes(q);
+    });
+  }, [detailEntries, rawSearchQuery]);
+
+  const isPendingModal = isPendingView || detailStudent?.status === "Pending";
+  const fullName = detailStudent
+    ? isPendingModal
+      ? detailStudent.applicant_name || `${detailStudent.firstName ?? ""} ${detailStudent.lastName ?? ""}`.trim() || "Applicant"
+      : `${detailStudent.firstName ?? ""} ${detailStudent.middleName ? detailStudent.middleName + " " : ""}${detailStudent.lastName ?? ""} ${detailStudent.suffix ?? ""}`.trim() || "Student"
+    : "";
+
+  const idNumber = detailStudent
+    ? isPendingModal
+      ? detailStudent.applicantId ?? detailStudent.applicantID ?? "—"
+      : detailStudent.studentNumber ?? "—"
+    : "—";
+
+  const statusBadge = getStatusBadge(detailStudent?.status);
+  const initials = fullName
+    ? fullName
+      .split(" ")
+      .map((n) => n[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase()
+    : "ST";
+
+  const DETAIL_TABS = [
+    { id: "overview", label: "Overview & Personal", icon: "fa-solid fa-user" },
+    { id: "contact", label: "Contact & Address", icon: "fa-solid fa-location-dot" },
+    { id: "education", label: "Education", icon: "fa-solid fa-graduation-cap" },
+    { id: "background", label: "Special Categories", icon: "fa-solid fa-clipboard-check" },
+    { id: "raw", label: "All Fields", icon: "fa-solid fa-table-cells" },
+  ];
 
   return (
     <div className={`flex h-full min-h-[340px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white font-sans shadow-sm ${className}`}>
@@ -378,22 +556,44 @@ function StudentsTable({
         <table className="min-w-full whitespace-nowrap border-collapse text-left text-sm md:text-base">
           <thead className="sticky top-0 z-10 border-b border-[#BFD9BC] bg-[#E4F6E2] text-[#173F30]">
             <tr>
-              <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">
-                {isPendingView ? "Applicant ID" : "Student Number"}
+              <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">
+                <div className="flex items-center gap-1.5">
+                  <i className="fa-solid fa-id-card text-[0.7rem] text-[#406e57]" />
+                  <span>{isPendingView ? "Applicant ID" : "Student Number"}</span>
+                </div>
               </th>
-              <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">
-                {isPendingView ? "Applicant Name" : "Student Name"}
+              <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">
+                <div className="flex items-center gap-1.5">
+                  <i className="fa-solid fa-user text-[0.7rem] text-[#406e57]" />
+                  <span>{isPendingView ? "Applicant Name" : "Student Name"}</span>
+                </div>
               </th>
-              {!isPendingView && <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Section</th>}
-              {!isPendingView && <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Year</th>}
-              {!isPendingView && <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Semester</th>}
-              {!isPendingView && <th className="px-5 py-4 text-center text-xs font-semibold uppercase tracking-wider text-[#315B46]">Schedule</th>}
-              {!isPendingView && <th className="px-5 py-4 text-center text-xs font-semibold uppercase tracking-wider text-[#315B46]">Curriculum</th>}
-              <th className="px-5 py-4 text-center text-xs font-semibold uppercase tracking-wider text-[#315B46]">Status</th>
+              {!isPendingView && (
+                <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Section</th>
+              )}
+              {!isPendingView && (
+                <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Year</th>
+              )}
+              {!isPendingView && (
+                <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Semester</th>
+              )}
+              {!isPendingView && (
+                <th className="px-5 py-3.5 text-center text-xs font-semibold uppercase tracking-wider text-[#315B46]">
+                  Schedule
+                </th>
+              )}
+              {!isPendingView && (
+                <th className="px-5 py-3.5 text-center text-xs font-semibold uppercase tracking-wider text-[#315B46]">
+                  Curriculum
+                </th>
+              )}
+              <th className="px-5 py-3.5 text-center text-xs font-semibold uppercase tracking-wider text-[#315B46]">
+                Status
+              </th>
               {showAuditColumns && !isPendingView && (
                 <>
-                  <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Created</th>
-                  <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Updated</th>
+                  <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Created</th>
+                  <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#315B46]">Updated</th>
                 </>
               )}
             </tr>
@@ -401,83 +601,89 @@ function StudentsTable({
 
           <tbody className="divide-y divide-gray-100">
             {paginatedStudents.length > 0 ? (
-              paginatedStudents.map((student, index) => (
-                <tr
-                  key={student._id || student.studentNumber || student.applicantID || index}
-                  tabIndex={0}
-                  onClick={() => setDetailStudent(student)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setDetailStudent(student);
-                    }
-                  }}
-                  aria-label={`View complete data for ${isPendingView
-                    ? student.applicant_name || student.applicantId || student.applicantID || "applicant"
-                    : `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || student.studentNumber || "student"
-                    }`}
-                  className="cursor-pointer transition-colors hover:bg-emerald-50/60 focus-visible:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
-                >
-                  <td className="px-5 py-4 font-medium text-gray-900">
-                    {isPendingView ? student.applicantID ?? student.applicantId ?? "—" : student.studentNumber ?? "—"}
-                  </td>
-                  <td className="px-5 py-4 text-gray-800">
-                    {isPendingView
-                      ? (student.applicant_name ?? `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()) || "—"
-                      : `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || "—"}
-                  </td>
-                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{getStudentSectionDisplay(student) || "—"}</td>}
-                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{getStudentYearDisplay(student) || "—"}</td>}
-                  {!isPendingView && <td className="px-5 py-4 text-gray-600">{student.semester || "—"}</td>}
-                  {!isPendingView && (
-                    <td className="px-5 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleOpenStudentSubjects(student, "schedule");
-                        }}
-                        className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-[#2E522A] focus:outline-none focus:ring-2 focus:ring-[#2E522A]/50"
-                        aria-label={`View schedule for ${student.firstName ?? "student"}`}
-                      >
-                        <i className="fa-solid fa-calendar-days" />
-                      </button>
+              paginatedStudents.map((student, index) => {
+                const sBadge = getStatusBadge(student.status);
+                return (
+                  <tr
+                    key={student._id || student.studentNumber || student.applicantID || index}
+                    tabIndex={0}
+                    onClick={() => setDetailStudent(student)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setDetailStudent(student);
+                      }
+                    }}
+                    aria-label={`View complete data for ${isPendingView
+                        ? student.applicant_name || student.applicantId || student.applicantID || "applicant"
+                        : `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || student.studentNumber || "student"
+                      }`}
+                    className="group cursor-pointer transition-colors hover:bg-emerald-50/70 focus-visible:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+                  >
+                    <td className="px-5 py-3.5 font-mono text-xs font-bold text-slate-800 group-hover:text-emerald-950">
+                      {isPendingView ? student.applicantID ?? student.applicantId ?? "—" : student.studentNumber ?? "—"}
                     </td>
-                  )}
-                  {!isPendingView && (
-                    <td className="px-5 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleOpenStudentSubjects(student, "curriculum");
-                        }}
-                        className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-[#2E522A] focus:outline-none focus:ring-2 focus:ring-[#2E522A]/50"
-                        aria-label={`View curriculum for ${student.firstName ?? "student"}`}
-                      >
-                        <i className="fa-solid fa-book-open" />
-                      </button>
+                    <td className="px-5 py-3.5 font-semibold text-slate-800 group-hover:text-emerald-900">
+                      {isPendingView
+                        ? (student.applicant_name ?? `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim()) || "—"
+                        : `${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || "—"}
                     </td>
-                  )}
-                  <td className="px-5 py-4 text-center">
-                    <span className={`inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs tracking-wide ${getStatusStyle(student.status)}`}>
-                      {student.status || "Unknown"}
-                    </span>
-                  </td>
-                  {showAuditColumns && !isPendingView && (
-                    <>
-                      <td className="px-5 py-4 text-xs text-gray-600">{formatDetailValue("createdAt", student.createdAt)}</td>
-                      <td className="px-5 py-4 text-xs text-gray-600">{formatDetailValue("updatedAt", student.updatedAt)}</td>
-                    </>
-                  )}
-                </tr>
-              ))
+                    {!isPendingView && <td className="px-5 py-3.5 text-slate-600 text-xs font-medium">{getStudentSectionDisplay(student) || "—"}</td>}
+                    {!isPendingView && <td className="px-5 py-3.5 text-slate-600 text-xs font-medium">{getStudentYearDisplay(student) || "—"}</td>}
+                    {!isPendingView && <td className="px-5 py-3.5 text-slate-600 text-xs font-medium">{student.semester || "—"}</td>}
+                    {!isPendingView && (
+                      <td className="px-5 py-3.5 text-center">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenStudentSubjects(student, "schedule");
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-emerald-100 hover:text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                          aria-label={`View schedule for ${student.firstName ?? "student"}`}
+                          title="View Class Schedule"
+                        >
+                          <i className="fa-solid fa-calendar-days text-sm" />
+                        </button>
+                      </td>
+                    )}
+                    {!isPendingView && (
+                      <td className="px-5 py-3.5 text-center">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenStudentSubjects(student, "curriculum");
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-emerald-100 hover:text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                          aria-label={`View curriculum for ${student.firstName ?? "student"}`}
+                          title="View Curriculum Checklist"
+                        >
+                          <i className="fa-solid fa-book-open text-sm" />
+                        </button>
+                      </td>
+                    )}
+                    <td className="px-5 py-3.5 text-center">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${sBadge.bg}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${sBadge.dot}`} />
+                        {sBadge.label}
+                      </span>
+                    </td>
+                    {showAuditColumns && !isPendingView && (
+                      <>
+                        <td className="px-5 py-3.5 text-xs text-slate-500">{formatDetailValue("createdAt", student.createdAt)}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500">{formatDetailValue("updatedAt", student.updatedAt)}</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })
             ) : (
               <tr>
-                <td colSpan={columnCount} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={columnCount} className="px-6 py-12 text-center text-slate-500">
                   <div className="flex flex-col items-center justify-center gap-2">
-                    <i className="fa-regular fa-folder-open text-3xl opacity-50" />
-                    <p>No students found.</p>
+                    <i className="fa-regular fa-folder-open text-3xl text-slate-300" />
+                    <p className="text-sm font-medium">No students found matching your filter criteria.</p>
                   </div>
                 </td>
               </tr>
@@ -497,12 +703,13 @@ function StudentsTable({
         />
       )}
 
+      {/* STUDENT RECORD MODAL */}
       {detailStudent &&
         createPortal(
           <div className="fixed inset-0 z-[230] flex items-center justify-center overflow-y-auto p-3 sm:p-6">
             <button
               type="button"
-              className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
               onClick={() => setDetailStudent(null)}
               aria-label="Close student data dialog"
             />
@@ -510,99 +717,357 @@ function StudentsTable({
               role="dialog"
               aria-modal="true"
               aria-label="Complete student data"
-              className="animate-fade relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/30 bg-white shadow-2xl shadow-slate-950/25"
+              className="animate-fade relative flex max-h-[90vh] h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-slate-50 shadow-2xl shadow-slate-950/40"
             >
-              <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
-                <div className="min-w-0">
-                  <p className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-emerald-700">Complete record</p>
-                  <h3 className="mt-1 truncate text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                    {isPendingView
-                      ? detailStudent.applicant_name || "Applicant data"
-                      : `${detailStudent.firstName ?? ""} ${detailStudent.lastName ?? ""}`.trim() || "Student data"}
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {isPendingView
-                      ? detailStudent.applicantId ?? detailStudent.applicantID ?? "No applicant number"
-                      : detailStudent.studentNumber ?? "No student number"}
-                  </p>
+              {/* Top Hero & Fixed Tabs Bar */}
+              <div className="shrink-0 bg-[#173c2c] text-white">
+                <div className="px-6 pt-6 pb-4 sm:px-8">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/15 text-lg font-black uppercase text-white backdrop-blur-md border border-white/20 shadow-inner">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-emerald-200">
+                            {isPendingModal ? "Applicant Record" : "Official Student Record"}
+                          </span>
+                          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[0.68rem] font-bold ${statusBadge.bg}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${statusBadge.dot}`} />
+                            {statusBadge.label}
+                          </span>
+                        </div>
+                        <h3 className="mt-0.5 truncate text-lg sm:text-xl font-extrabold tracking-tight text-white">
+                          {fullName}
+                        </h3>
+                        <p className="mt-0.5 truncate text-xs text-emerald-100/80 font-mono">
+                          {isPendingModal ? "Applicant ID" : "Student ID"}: <span className="font-bold text-white">{idNumber}</span>
+                          {detailStudent.course && ` • ${detailStudent.course}`}
+                          {detailStudent.year && ` • Year ${getStudentYearDisplay(detailStudent)}`}
+                          {detailStudent.section && ` • Section ${getStudentSectionDisplay(detailStudent)}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (idNumber && idNumber !== "—") {
+                            navigator.clipboard.writeText(idNumber);
+                            toast.success(`Copied ID (${idNumber}) to clipboard!`);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-xs transition hover:bg-white/20 active:scale-95"
+                      >
+                        <i className="fa-regular fa-copy text-xs" />
+                        <span className="hidden sm:inline">Copy ID</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailStudent(null)}
+                        className="grid h-8 w-8 place-items-center rounded-xl bg-white/10 text-white/90 transition hover:bg-white/20 hover:text-white"
+                        aria-label="Close detail modal"
+                      >
+                        <i className="fa-solid fa-xmark text-base" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Sub-navigation Tabs Strip */}
+                <div className="border-t border-white/10 bg-black/20 px-4 py-2 sm:px-8">
+                  <div
+                    ref={tabsContainerRef}
+                    onMouseDown={handleTabsMouseDown}
+                    onMouseUp={handleTabsMouseUpOrLeave}
+                    onMouseLeave={handleTabsMouseUpOrLeave}
+                    onMouseMove={handleTabsMouseMove}
+                    onWheel={handleTabsWheel}
+                    className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 select-none cursor-grab active:cursor-grabbing"
+                  >
+                    {DETAIL_TABS.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          if (isDraggingTabs) return;
+                          setActiveDetailTab(tab.id);
+                        }}
+                        className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${activeDetailTab === tab.id
+                            ? "bg-white text-[#111e19] shadow-md"
+                            : "bg-white/10 text-emerald-100 hover:bg-white/20 hover:text-white"
+                          }`}
+                      >
+                        <i className={`${tab.icon} text-xs pointer-events-none`} />
+                        <span className="pointer-events-none">{tab.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Main Content */}
+              <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50/70 p-4 sm:p-6 custom-scrollbar">
+                {/* TAB 1: OVERVIEW & PERSONAL */}
+                {activeDetailTab === "overview" && (
+                  <div className="flex flex-col gap-5">
+                    <SectionCard title="Academic Placement" icon="fa-solid fa-building-columns">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <DataField label="studentNumber" value={detailStudent.studentNumber ?? detailStudent.applicantID} isHighlight />
+                        <DataField label="course" value={detailStudent.course} />
+                        <DataField label="year" value={getStudentYearDisplay(detailStudent)} />
+                        <DataField label="section" value={getStudentSectionDisplay(detailStudent)} />
+                        <DataField label="semester" value={detailStudent.semester} />
+                        <DataField label="schoolYear" value={detailStudent.schoolYear} />
+                        <DataField label="status" value={detailStudent.status} />
+                        <DataField label="applicantType" value={detailStudent.applicantType} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="Personal Demographics" icon="fa-solid fa-id-card">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <DataField label="firstName" value={detailStudent.firstName} />
+                        <DataField label="middleName" value={detailStudent.middleName} />
+                        <DataField label="lastName" value={detailStudent.lastName} />
+                        <DataField label="suffix" value={detailStudent.suffix} />
+                        <DataField label="gender" value={detailStudent.gender} />
+                        <DataField label="civilStatus" value={detailStudent.civilStatus} />
+                        <DataField label="birthDate" value={detailStudent.birthDate} />
+                        <DataField label="placeOfBirth" value={detailStudent.placeOfBirth} />
+                        <DataField label="email" value={detailStudent.email} icon="fa-regular fa-envelope" />
+                        <DataField label="contactNumber" value={detailStudent.contactNumber} icon="fa-solid fa-phone" />
+                      </div>
+                    </SectionCard>
+                  </div>
+                )}
+
+                {/* TAB 2: CONTACT & ADDRESS */}
+                {activeDetailTab === "contact" && (
+                  <div className="flex flex-col gap-5">
+                    <SectionCard title="Permanent Address" icon="fa-solid fa-house">
+                      <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-xs font-semibold text-emerald-900">
+                        <i className="fa-solid fa-location-dot text-emerald-600 mr-2" />
+                        {[
+                          detailStudent.permanentHouse,
+                          detailStudent.permanentStreet,
+                          detailStudent.permanentBarangay,
+                          detailStudent.permanentCity,
+                          detailStudent.permanentProvince,
+                          detailStudent.permanentZip,
+                        ]
+                          .filter(Boolean)
+                          .join(", ") || "No permanent address recorded"}
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <DataField label="permanentHouse" value={detailStudent.permanentHouse} />
+                        <DataField label="permanentStreet" value={detailStudent.permanentStreet} />
+                        <DataField label="permanentBarangay" value={detailStudent.permanentBarangay} />
+                        <DataField label="permanentCity" value={detailStudent.permanentCity} />
+                        <DataField label="permanentProvince" value={detailStudent.permanentProvince} />
+                        <DataField label="permanentZip" value={detailStudent.permanentZip} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="Present Address" icon="fa-solid fa-location-arrow">
+                      <div className="mb-3 rounded-xl border border-slate-200 bg-slate-100/60 p-3 text-xs font-semibold text-slate-800">
+                        <i className="fa-solid fa-location-dot text-slate-500 mr-2" />
+                        {[
+                          detailStudent.presentHouse,
+                          detailStudent.presentStreet,
+                          detailStudent.presentBarangay,
+                          detailStudent.presentCity,
+                          detailStudent.presentProvince,
+                          detailStudent.presentZip,
+                        ]
+                          .filter(Boolean)
+                          .join(", ") || "Same as permanent address / Not specified"}
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <DataField label="presentHouse" value={detailStudent.presentHouse} />
+                        <DataField label="presentStreet" value={detailStudent.presentStreet} />
+                        <DataField label="presentBarangay" value={detailStudent.presentBarangay} />
+                        <DataField label="presentCity" value={detailStudent.presentCity} />
+                        <DataField label="presentProvince" value={detailStudent.presentProvince} />
+                        <DataField label="presentZip" value={detailStudent.presentZip} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="Parental & Guardian Contacts" icon="fa-solid fa-users">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <DataField label="fatherName" value={detailStudent.fatherName} />
+                        <DataField label="fatherContact" value={detailStudent.fatherContact} icon="fa-solid fa-phone" />
+                        <DataField label="motherName" value={detailStudent.motherName} />
+                        <DataField label="motherContact" value={detailStudent.motherContact} icon="fa-solid fa-phone" />
+                        <DataField label="spouseName" value={detailStudent.spouseName} />
+                      </div>
+                    </SectionCard>
+                  </div>
+                )}
+
+                {/* TAB 3: EDUCATION */}
+                {activeDetailTab === "education" && (
+                  <div className="flex flex-col gap-5">
+                    <SectionCard title="Elementary School" icon="fa-solid fa-school">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <DataField label="elementarySchool" value={detailStudent.elementarySchool} />
+                        <DataField label="elementaryAddress" value={detailStudent.elementaryAddress} />
+                        <DataField label="elementaryYear" value={detailStudent.elementaryYear} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="Junior High School" icon="fa-solid fa-building-columns">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <DataField label="juniorHighSchool" value={detailStudent.juniorHighSchool} />
+                        <DataField label="juniorHighAddress" value={detailStudent.juniorHighAddress} />
+                        <DataField label="juniorHighYear" value={detailStudent.juniorHighYear} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="Senior High School" icon="fa-solid fa-graduation-cap">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <DataField label="seniorHighSchool" value={detailStudent.seniorHighSchool} />
+                        <DataField label="seniorHighAddress" value={detailStudent.seniorHighAddress} />
+                        <DataField label="seniorHighYear" value={detailStudent.seniorHighYear} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="College / Prior Tertiary" icon="fa-solid fa-award">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <DataField label="collegeSchool" value={detailStudent.collegeSchool} />
+                        <DataField label="collegeAddress" value={detailStudent.collegeAddress} />
+                        <DataField label="collegeYear" value={detailStudent.collegeYear} />
+                      </div>
+                    </SectionCard>
+                  </div>
+                )}
+
+                {/* TAB 4: SPECIAL CATEGORIES */}
+                {activeDetailTab === "background" && (
+                  <div className="flex flex-col gap-5">
+                    <SectionCard title="Special Demographic Statuses" icon="fa-solid fa-clipboard-check">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <BooleanBadge label="4Ps Beneficiary Program" value={detailStudent.fourPs} />
+                        <BooleanBadge label="Solo Parent Household" value={detailStudent.soloParent} />
+                        <BooleanBadge label="Indigenous Community Member" value={detailStudent.indigenous} />
+                        <BooleanBadge label="Person with Disability (PWD)" value={detailStudent.disability} />
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard title="Record Audit & System Info" icon="fa-solid fa-clock-rotate-left">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <DataField label="createdAt" value={detailStudent.createdAt} />
+                        <DataField label="updatedAt" value={detailStudent.updatedAt} />
+                      </div>
+                    </SectionCard>
+                  </div>
+                )}
+
+                {/* TAB 5: ALL FIELDS RAW SEARCHABLE */}
+                {activeDetailTab === "raw" && (
+                  <div className="flex flex-col gap-4">
+                    <div className="relative">
+                      <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs" />
+                      <input
+                        type="text"
+                        value={rawSearchQuery}
+                        onChange={(e) => setRawSearchQuery(e.target.value)}
+                        placeholder="Filter fields or values..."
+                        className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-xs font-medium outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                      />
+                      {rawSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setRawSearchQuery("")}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                        >
+                          <i className="fa-solid fa-xmark" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                      {filteredRawEntries.map(([key, value]) => (
+                        <DataField key={key} label={key} value={value} />
+                      ))}
+                      {filteredRawEntries.length === 0 && (
+                        <div className="col-span-full rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">
+                          No matching fields found for "{rawSearchQuery}"
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="shrink-0 flex items-center justify-between border-t border-slate-200/80 bg-white px-6 py-3.5">
+                <span className="text-xs text-slate-500 font-medium">
+                  Viewing {fullName} ({idNumber})
+                </span>
                 <button
                   type="button"
                   onClick={() => setDetailStudent(null)}
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
-                  aria-label="Close complete student data"
+                  className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/50"
                 >
-                  <i className="fa-solid fa-xmark" />
+                  Close Record
                 </button>
-              </div>
-
-              <div className="overflow-y-auto bg-slate-50/60 p-4 sm:p-6">
-                <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {detailEntries.map(([key, value]) => (
-                    <div key={key} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <dt className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-slate-500">
-                        {FIELD_LABELS[key] ?? humanizeKey(key)}
-                      </dt>
-                      <dd className="mt-2 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-slate-800">
-                        {formatDetailValue(key, value)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
               </div>
             </div>
           </div>,
           document.body
         )}
 
+      {/* SCHEDULE / CURRICULUM MODAL */}
       {selectedStudent &&
         createPortal(
-          <div className="fixed inset-0 z-[220] flex items-center justify-center overflow-y-auto p-4 md:p-6">
+          <div className="fixed inset-0 z-[260] flex items-center justify-center overflow-y-auto p-4 md:p-6">
             <button
               type="button"
-              className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity"
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
               onClick={closeSubjectDialog}
               aria-label="Close subject dialog"
             />
-            <div className="animate-fade relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-gray-100 bg-white p-5 md:p-6">
+            <div className="animate-fade relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 bg-[#173c2c] px-6 py-5 text-white">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">
-                    {selectedSubjectView === "schedule" ? "Class Schedule" : "Class Curriculum"}
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <i className={`fa-solid ${selectedSubjectView === "schedule" ? "fa-calendar-days" : "fa-book-open"} text-emerald-300`} />
+                    {selectedSubjectView === "schedule" ? "Class Schedule" : "Curriculum Checklist"}
                   </h3>
-                  <p className="mt-1 text-sm font-medium text-gray-500">
-                    {selectedStudent.firstName} {selectedStudent.lastName} <span className="mx-1">•</span>{" "}
-                    {selectedStudent.studentNumber} <span className="mx-1">•</span> {selectedStudent.section}
+                  <p className="mt-1 text-xs text-emerald-100/90 font-medium">
+                    {selectedStudent.firstName} {selectedStudent.lastName} <span className="mx-1.5">•</span>{" "}
+                    <span className="font-mono">{selectedStudent.studentNumber || selectedStudent.applicantID}</span> <span className="mx-1.5">•</span> Section {getStudentSectionDisplay(selectedStudent)}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={closeSubjectDialog}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#2E522A]/50"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 focus:outline-none"
                   aria-label="Close subject dialog"
                 >
                   <i className="fa-solid fa-xmark" />
                 </button>
               </div>
 
-              <div className="min-h-[300px] bg-gray-50/50 p-5 md:p-6">
+              <div className="min-h-[300px] flex-1 overflow-y-auto bg-slate-50/50 p-5 md:p-6">
                 {subjectLoading ? (
-                  <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-gray-500">
-                    <i className="fa-solid fa-circle-notch fa-spin text-3xl text-[#2E522A]" />
-                    <p className="text-sm font-medium">
-                      Loading {selectedSubjectView === "schedule" ? "schedule" : "curriculum"}...
+                  <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-slate-500">
+                    <i className="fa-solid fa-circle-notch fa-spin text-3xl text-emerald-700" />
+                    <p className="text-sm font-semibold">
+                      Loading {selectedSubjectView === "schedule" ? "schedule" : "curriculum"} details...
                     </p>
                   </div>
                 ) : subjectError ? (
-                  <div className="flex min-h-[260px] flex-col items-center justify-center gap-2 text-center text-gray-500">
-                    <i className="fa-regular fa-calendar-xmark text-4xl text-gray-400 opacity-70" />
-                    <p className="text-base font-semibold text-gray-700">
-                      {selectedSubjectView === "schedule" ? "Schedule details not available." : "Curriculum details not available."}
+                  <div className="flex min-h-[260px] flex-col items-center justify-center gap-2 text-center text-slate-500">
+                    <i className="fa-regular fa-calendar-xmark text-4xl text-slate-300" />
+                    <p className="text-base font-bold text-slate-700">
+                      {selectedSubjectView === "schedule" ? "Schedule details not available" : "Curriculum details not available"}
                     </p>
-                    <p className="text-sm text-gray-500">{subjectError}</p>
+                    <p className="text-xs text-slate-500 max-w-md">{subjectError}</p>
                   </div>
                 ) : (
-                  <div className="overflow-auto rounded-xl border border-gray-200 bg-white">
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
                     <table className="min-w-full border-collapse text-sm">
                       {selectedSubjectView === "schedule" ? (
                         <thead className="border-b border-[#BFD9BC] bg-[#E4F6E2] text-[#315B46]">
@@ -625,28 +1090,28 @@ function StudentsTable({
                           </tr>
                         </thead>
                       )}
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-slate-100">
                         {selectedSubjectView === "schedule" ? (
                           selectedSubjectSubjects.map((cls, index) => (
-                            <tr key={index} className="hover:bg-gray-50/80">
-                              <td className="px-4 py-3 font-medium text-gray-800">{cls.subjectCode ?? cls.subject_code ?? "-"}</td>
-                              <td className="px-4 py-3 text-gray-700">{cls.day}</td>
-                              <td className="px-4 py-3 text-gray-700">{formatScheduleTimeRange(cls.startTime, cls.endTime)}</td>
-                              <td className="px-4 py-3 text-gray-700">{cls.roomName ?? cls.room_name ?? "-"}</td>
-                              <td className="px-4 py-3 text-gray-700">{cls.progName ?? cls.profName ?? "-"}</td>
+                            <tr key={index} className="hover:bg-slate-50/80">
+                              <td className="px-4 py-3 font-semibold font-mono text-xs text-slate-800">{cls.subjectCode ?? cls.subject_code ?? "-"}</td>
+                              <td className="px-4 py-3 text-slate-700 text-xs font-medium">{cls.day}</td>
+                              <td className="px-4 py-3 text-slate-700 text-xs font-medium">{formatScheduleTimeRange(cls.startTime, cls.endTime)}</td>
+                              <td className="px-4 py-3 text-slate-700 text-xs">{cls.roomName ?? cls.room_name ?? "-"}</td>
+                              <td className="px-4 py-3 text-slate-700 text-xs">{cls.progName ?? cls.profName ?? "-"}</td>
                             </tr>
                           ))
                         ) : (
                           selectedSubjectSubjects.map((subject, index) => (
-                            <tr key={`${subject.subject_code || subject.code || "subject"}-${index}`} className="hover:bg-gray-50/80">
-                              <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-800">
-                              {subject.subject_code || subject.code || "-"}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">{subject.title || "-"}</td>
-                            <td className="px-4 py-3 text-center text-gray-600">{subject.lecture ?? 0}</td>
-                            <td className="px-4 py-3 text-center text-gray-600">{subject.laboratory ?? 0}</td>
-                            <td className="px-4 py-3 text-center font-semibold text-gray-800">{subject.units ?? 0}</td>
-                          </tr>
+                            <tr key={`${subject.subject_code || subject.code || "subject"}-${index}`} className="hover:bg-slate-50/80">
+                              <td className="whitespace-nowrap px-4 py-3 font-semibold font-mono text-xs text-slate-800">
+                                {subject.subject_code || subject.code || "-"}
+                              </td>
+                              <td className="px-4 py-3 text-slate-700 text-xs font-medium">{subject.title || "-"}</td>
+                              <td className="px-4 py-3 text-center text-slate-600 text-xs">{subject.lecture ?? 0}</td>
+                              <td className="px-4 py-3 text-center text-slate-600 text-xs">{subject.laboratory ?? 0}</td>
+                              <td className="px-4 py-3 text-center font-bold text-emerald-800 text-xs">{subject.units ?? 0}</td>
+                            </tr>
                           ))
                         )}
                       </tbody>
@@ -655,11 +1120,11 @@ function StudentsTable({
                 )}
               </div>
 
-              <div className="flex justify-end border-t border-gray-100 bg-white p-4">
+              <div className="flex justify-end border-t border-slate-100 bg-white p-4">
                 <button
                   type="button"
                   onClick={closeSubjectDialog}
-                  className="rounded-xl bg-gray-100 px-6 py-2 font-medium text-gray-700 transition-colors hover:bg-gray-200 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  className="rounded-xl bg-slate-100 px-6 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900"
                 >
                   Close
                 </button>

@@ -5,7 +5,7 @@ import LoadingState from "../components/ui/LoadingState";
 import PageHeader from "../components/ui/PageHeader";
 import Panel from "../components/ui/Panel";
 import SearchInput from "../components/ui/SearchInput";
-import api from "../lib/axios"; 
+import api from "../lib/axios";
 import { buildScheduleMap } from "../lib/scheduleUtils";
 import { getStudentPlacements, studentMatchesFilters } from "../utils/studentDisplay";
 
@@ -23,9 +23,8 @@ function FilterSelect({ label, value, onChange, options }) {
         <select
           value={value}
           onChange={onChange}
-          className={`h-11 w-full appearance-none rounded-xl border bg-white px-3.5 pr-9 text-sm font-medium outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 ${
-            active ? "border-emerald-300 text-emerald-800" : "border-slate-200 text-slate-700"
-          }`}
+          className={`h-11 w-full appearance-none rounded-xl border bg-white px-3.5 pr-9 text-sm font-medium outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 ${active ? "border-emerald-300 text-emerald-800" : "border-slate-200 text-slate-700"
+            }`}
         >
           {options.map((option) => (
             <option key={option} value={option}>
@@ -100,7 +99,7 @@ function StudentList() {
         );
       });
     }
- 
+
     if (!isPendingView) {
       const yearFilter = selectedYear === "All Year" ? null : YEAR_MAP[selectedYear];
       const sectionFilter = selectedSection === "All Section" ? null : selectedSection;
@@ -152,8 +151,8 @@ function StudentList() {
         const response = isPendingView
           ? await api.get("/students/applicants")
           : await api.get("/students", {
-              params: selectedStatus !== "All Registered" ? { status: selectedStatus } : undefined,
-            });
+            params: selectedStatus !== "All Registered" ? { status: selectedStatus } : undefined,
+          });
         setStudents(Array.isArray(response.data) ? response.data : []);
         console.log("[StudentList] Fetched students data (raw from API):", response.data); // 
       } catch (error) {
@@ -204,85 +203,83 @@ function StudentList() {
 
   return (
     <>
-    <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
-      <PageHeader
-        eyebrow="Records"
-        title="Student Directory"
-        description="Search, review, and filter registered students and pending applicants."
-        actions={
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm">
-              {displayedStudents.length} record{displayedStudents.length === 1 ? "" : "s"}
-            </div>
-            <p className="text-xs font-medium text-slate-500">Click any row to view the complete record.</p>
-          </div>
-        }
-      />
-
-      <Panel className="p-4 sm:p-5">
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <SearchInput
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onClear={() => setQuery("")}
-              placeholder={isPendingView ? "Search applicant name or number..." : "Search student name or number..."}
-              className="w-full xl:max-w-xl"
-            />
-
-            {!isPendingView && (
-              <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:w-auto">
-                <FilterSelect
-                  label="Year"
-                  value={selectedYear}
-                  onChange={(event) => setSelectedYear(event.target.value)}
-                  options={YEAR_OPTIONS}
-                />
-                <FilterSelect
-                  label="Section"
-                  value={selectedSection}
-                  onChange={(event) => setSelectedSection(event.target.value)}
-                  options={availableSections}
-                />
+      <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
+        <PageHeader
+          title="Student Directory"
+          description="Search, review, and filter registered students and pending applicants."
+          actions={
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm">
+                {displayedStudents.length} record{displayedStudents.length === 1 ? "" : "s"}
               </div>
-            )}
-          </div>
+              <p className="text-xs font-medium text-slate-500">Click any row to view the complete record.</p>
+            </div>
+          }
+        />
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-            <span className="mr-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-slate-500">Status</span>
-            {STATUS_OPTIONS.map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setSelectedStatus(status)}
-                className={`rounded-xl border px-3.5 py-2 text-sm font-semibold transition ${
-                  selectedStatus === status
+        <Panel className="p-4 sm:p-5">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <SearchInput
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onClear={() => setQuery("")}
+                placeholder={isPendingView ? "Search applicant name or number..." : "Search student name or number..."}
+                className="w-full xl:max-w-xl"
+              />
+
+              {!isPendingView && (
+                <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:w-auto">
+                  <FilterSelect
+                    label="Year"
+                    value={selectedYear}
+                    onChange={(event) => setSelectedYear(event.target.value)}
+                    options={YEAR_OPTIONS}
+                  />
+                  <FilterSelect
+                    label="Section"
+                    value={selectedSection}
+                    onChange={(event) => setSelectedSection(event.target.value)}
+                    options={availableSections}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+              <span className="mr-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-slate-500">Status</span>
+              {STATUS_OPTIONS.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setSelectedStatus(status)}
+                  className={`rounded-xl border px-3.5 py-2 text-sm font-semibold transition ${selectedStatus === status
                     ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
                     : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
-                }`}
-              >
-                {status}
-              </button>
-            ))}
+                    }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      </Panel>
+        </Panel>
 
-      <Panel className="min-h-[420px] overflow-hidden">
-        {loading ? (
-          <LoadingState label="Loading student records..." />
-        ) : (
-          <StudentsTable
-            students={displayedStudents}
-            scheduleMap={scheduleMap}
-            className="w-full border-0 shadow-none"
-            isPendingView={isPendingView}
-            initialPageSize={10}
-            pageSizeOptions={[10, 20, 50]}
-          />
-        )}
-      </Panel>
-    </section>
+        <Panel className="min-h-[420px] overflow-hidden">
+          {loading ? (
+            <LoadingState label="Loading student records..." />
+          ) : (
+            <StudentsTable
+              students={displayedStudents}
+              scheduleMap={scheduleMap}
+              className="w-full border-0 shadow-none"
+              isPendingView={isPendingView}
+              initialPageSize={10}
+              pageSizeOptions={[10, 20, 50]}
+            />
+          )}
+        </Panel>
+      </section>
 
     </>
   );

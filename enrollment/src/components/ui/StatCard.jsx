@@ -10,24 +10,21 @@ function StatCard({ label, value, caption, icon, tone = "slate", featured = fals
     <button
       type="button"
       onClick={onClick}
-      className={`group flex min-h-40 w-full flex-col justify-between rounded-2xl border p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${
-        featured
-          ? "border-emerald-900 bg-[#1f5a3c] text-white shadow-md shadow-emerald-950/10"
-          : "border-slate-200 bg-white text-slate-900 shadow-sm"
-      }`}
+      className={`group flex min-h-40 w-full flex-col justify-between rounded-2xl border p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${featured
+        ? "border-emerald-900 bg-[#1f5a3c] text-white shadow-md shadow-emerald-950/10"
+        : "border-slate-200 bg-white text-slate-900 shadow-sm"
+        }`}
     >
       <div className="flex items-start justify-between gap-3">
         <span
-          className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
-            featured ? "bg-white/12 text-emerald-50" : toneClasses[tone]
-          }`}
+          className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${featured ? "bg-white/12 text-emerald-50" : toneClasses[tone]
+            }`}
         >
           {label}
         </span>
         <span
-          className={`grid h-9 w-9 place-items-center rounded-xl transition-transform group-hover:scale-105 ${
-            featured ? "bg-white/10 text-white" : toneClasses[tone]
-          }`}
+          className={`grid h-9 w-9 place-items-center rounded-xl transition-transform group-hover:scale-105 ${featured ? "bg-white/10 text-white" : toneClasses[tone]
+            }`}
         >
           <i className={`${icon} text-sm`} />
         </span>

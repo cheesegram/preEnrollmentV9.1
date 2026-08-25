@@ -1,4 +1,5 @@
 import { useEffect, useId } from "react";
+import { createPortal } from "react-dom";
 
 const SIZE_CLASSES = {
   sm: "max-w-md",
@@ -30,8 +31,8 @@ function Modal({ open, onClose, title, children, size = "xl" }) {
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6">
+  return createPortal(
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-3 sm:p-6">
       <button
         type="button"
         className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
@@ -43,9 +44,8 @@ function Modal({ open, onClose, title, children, size = "xl" }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`animate-fade relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl border border-white/30 bg-white shadow-2xl shadow-slate-950/25 ${
-          SIZE_CLASSES[size] ?? SIZE_CLASSES.xl
-        }`}
+        className={`animate-fade relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl border border-white/30 bg-white shadow-2xl shadow-slate-950/25 ${SIZE_CLASSES[size] ?? SIZE_CLASSES.xl
+          }`}
       >
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 bg-white px-5 py-4 sm:px-6">
           <div className="min-w-0">
@@ -66,7 +66,8 @@ function Modal({ open, onClose, title, children, size = "xl" }) {
 
         <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 sm:p-6">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

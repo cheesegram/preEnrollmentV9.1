@@ -62,13 +62,13 @@ function Sidebar({ open, onClose }) {
             <i className="fa-solid fa-xmark pointer-events-none" aria-hidden="true" />
           </button>
 
-          <div className="relative z-10 flex items-center gap-4 pr-10">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-white p-1.5 shadow-lg shadow-black/15">
-              <img src={logo} alt="IITI logo" className="h-full w-full object-contain" />
+          <div className="relative z-10 flex items-center gap-3.5 pr-6">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white p-1 shadow-md shadow-black/20">
+              <img src={logo} alt="IITI logo" className="h-full w-full object-contain rounded-full" />
             </div>
-            <div>
-              <p className="text-xl font-extrabold tracking-tight">IITI</p>
-              <p className="mt-0.5 text-xs font-medium uppercase tracking-[0.18em] text-emerald-100/70">
+            <div className="min-w-0">
+              <p className="text-xl font-extrabold tracking-tight text-white leading-none">IITI</p>
+              <p className="mt-1 whitespace-nowrap text-[0.65rem] font-bold uppercase tracking-[0.16em] text-emerald-100/80">
                 Enrollment System
               </p>
             </div>
@@ -80,7 +80,7 @@ function Sidebar({ open, onClose }) {
             Main menu
           </p>
           <nav className="mt-3" aria-label="Main navigation">
-            <ul className="space-y-1.5">
+            <ul className="space-y-1">
               {navigationItems.map((item) => (
                 <li key={item.path}>
                   <NavLink
@@ -88,29 +88,21 @@ function Sidebar({ open, onClose }) {
                     end={item.path === "/"}
                     onClick={onClose}
                     className={({ isActive }) =>
-                      `group flex items-center gap-3 rounded-2xl px-3.5 py-3 transition-all ${isActive
-                        ? "bg-white text-[#173c2c] shadow-lg shadow-black/15"
-                        : "text-emerald-50/75 hover:bg-white/10 hover:text-white"
+                      `group flex items-center gap-3 rounded-xl px-3 py-2.5 font-medium transition-all ${isActive
+                        ? "bg-white text-[#173c2c] font-bold shadow-md shadow-black/10"
+                        : "text-emerald-50/80 hover:bg-white/10 hover:text-white"
                       }`
                     }
                   >
                     {({ isActive }) => (
                       <>
                         <span
-                          className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors ${isActive ? "bg-emerald-50 text-[#236241]" : "bg-white/8 text-emerald-100"
+                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors ${isActive ? "bg-emerald-100 text-[#173c2c]" : "bg-white/10 text-emerald-100 group-hover:bg-white/20"
                             }`}
                         >
                           <i className={`${item.icon} text-sm`} />
                         </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold">{item.shortLabel}</span>
-                          <span
-                            className={`mt-0.5 block truncate text-[0.7rem] ${isActive ? "text-slate-500" : "text-emerald-100/45 group-hover:text-emerald-100/65"
-                              }`}
-                          >
-                            {item.description}
-                          </span>
-                        </span>
+                        <span className="truncate text-sm font-semibold">{item.shortLabel}</span>
                       </>
                     )}
                   </NavLink>

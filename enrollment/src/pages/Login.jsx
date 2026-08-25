@@ -135,7 +135,7 @@ function Login() {
                 className="absolute inset-0 h-full w-full object-cover"
             />
 
-            <div className="absolute inset-0 bg-gradient-to-br from-[#0B2F23]/95 via-[#154A35]/88 to-[#2E522A]/80" />
+            <div className="absolute inset-0 bg-[#0F3B2B]/90" />
 
             <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
                 <div className="absolute -left-32 -top-32 h-[28rem] w-[28rem] rounded-full border-[70px] border-white/5" />

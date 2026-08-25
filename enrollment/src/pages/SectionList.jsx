@@ -260,7 +260,6 @@ function SectionList() {
   return (
     <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
-        eyebrow="Capacity"
         title="Section Management"
         description="Monitor section enrollment, available capacity, and overloaded classes."
         actions={
@@ -336,83 +335,127 @@ function SectionList() {
         )}
       </Panel>
 
-      {showCapacityModal &&
+      {showCapacityModal && (
         <div className="fixed inset-0 z-[240] flex items-center justify-center p-3 sm:p-6">
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
             onClick={() => setShowCapacityModal(false)}
+            aria-label="Close capacity modal"
           />
-          <div className="relative w-full max-w-lg rounded-2xl border border-white/30 bg-white p-6 shadow-2xl">
-            <div className="mb-6">
-              <p className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-emerald-700">Capacity</p>
-              <h3 className="mt-1 text-lg font-extrabold tracking-tight text-slate-900">Set Total Section Capacity</h3>
+          <div className="animate-fade relative flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white p-6 shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 mb-5">
+              <div>
+                <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-emerald-800">Section Configuration</p>
+                <h3 className="mt-1 text-lg font-extrabold tracking-tight text-slate-900 sm:text-xl">Set Section Capacity</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCapacityModal(false)}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+                aria-label="Close dialog"
+              >
+                <i className="fa-solid fa-xmark text-base" />
+              </button>
             </div>
+
             {!manualMode ? (
-              <>
-                <div className="mb-6">
-                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">New Total Capacity</label>
-                  <div className="flex items-center gap-3 rounded-xl border border-gray-300 bg-white p-2">
-                    <button
-                      type="button"
-                      onClick={decrementCapacity}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-600 text-lg font-bold text-white transition hover:bg-red-700 active:scale-95"
-                      aria-label="Decrease capacity"
-                    >
-                      -
-                    </button>
-                    <div className="flex-1 text-center">
-                      <span className="text-2xl font-bold text-gray-900">{capacityValue}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={incrementCapacity}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-lg font-bold text-white transition hover:bg-blue-700 active:scale-95"
-                      aria-label="Increase capacity"
-                    >
-                      +
-                    </button>
+              <div className="mb-6 flex flex-col gap-3">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-600">New Total Capacity</label>
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/70 p-3 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={decrementCapacity}
+                    disabled={capacityValue <= 10}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-100 hover:border-slate-300 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label="Decrease capacity"
+                    title="Decrease by 10"
+                  >
+                    <i className="fa-solid fa-minus text-sm" />
+                  </button>
+
+                  <div className="flex flex-col items-center">
+                    <span className="font-mono text-3xl font-black text-slate-900">{capacityValue}</span>
+                    <span className="text-[0.68rem] font-semibold text-slate-500 uppercase tracking-wider">Students Max</span>
                   </div>
-                  <p className="mt-1.5 text-xs text-gray-500">Values are in increments of 10 only</p>
+
+                  <button
+                    type="button"
+                    onClick={incrementCapacity}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-800 text-white shadow-xs transition hover:bg-emerald-900 active:scale-95"
+                    aria-label="Increase capacity"
+                    title="Increase by 10"
+                  >
+                    <i className="fa-solid fa-plus text-sm" />
+                  </button>
                 </div>
-              </>
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-slate-500 font-medium">Increments of 10 students</p>
+                  <div className="flex items-center gap-1">
+                    {[30, 40, 50, 60, 80].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          // update capacityValue directly via increment/decrement simulation or state
+                          const diff = preset - capacityValue;
+                          if (diff > 0) {
+                            for (let i = 0; i < diff / 10; i++) incrementCapacity();
+                          } else if (diff < 0) {
+                            for (let i = 0; i < Math.abs(diff) / 10; i++) decrementCapacity();
+                          }
+                        }}
+                        className={`rounded-lg px-2 py-0.5 text-[0.68rem] font-extrabold transition ${
+                          capacityValue === preset
+                            ? "bg-emerald-800 text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
-              <>
-                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-slate-700">Block Capacity</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={manualBlockCapacity}
-                      onChange={handleManualBlockChange}
-                      placeholder="Enter whole number"
-                      className="block w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#2E522A] focus:border-transparent outline-none transition-all text-sm shadow-sm [appearance:none]"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">Directly edit blockCapacity</p>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-slate-700">Irregular Capacity</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={manualIrregularCapacity}
-                      onChange={handleManualIrregularChange}
-                      placeholder="Enter whole number"
-                      className="block w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:ring-2 focus:ring-[#2E522A] focus:border-transparent outline-none transition-all text-sm shadow-sm [appearance:none]"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">Directly edit irregularCapacity</p>
-                  </div>
+              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">Block Capacity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={manualBlockCapacity}
+                    onChange={handleManualBlockChange}
+                    placeholder="Enter capacity"
+                    className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-xs"
+                  />
+                  <p className="mt-1 text-[0.68rem] text-slate-500">Directly set block capacity</p>
                 </div>
-              </>
-            )}
-            {manualError && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                <p className="text-sm font-semibold text-red-700">{manualError}</p>
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">Irregular Capacity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={manualIrregularCapacity}
+                    onChange={handleManualIrregularChange}
+                    placeholder="Enter capacity"
+                    className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-xs"
+                  />
+                  <p className="mt-1 text-[0.68rem] text-slate-500">Directly set irregular capacity</p>
+                </div>
               </div>
             )}
-            <div className="flex items-center justify-between border-t border-gray-200 pt-3">
-              <label className="flex items-center gap-2 cursor-pointer">
+
+            {manualError && (
+              <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <p className="text-xs font-bold text-rose-800">{manualError}</p>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={manualMode}
@@ -420,15 +463,16 @@ function SectionList() {
                     setManualMode(e.target.checked);
                     setManualError("");
                   }}
-                  className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
                 />
-                <span className="text-sm font-semibold text-gray-700">Set Manually</span>
+                <span className="text-xs font-bold text-slate-700">Set Manually</span>
               </label>
-              <div className="flex gap-3">
+
+              <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowCapacityModal(false)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100"
                 >
                   Cancel
                 </button>
@@ -441,29 +485,21 @@ function SectionList() {
                       handleManualConfirm();
                     }
                   }}
-                  className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white ${
-                    manualMode && manualError
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-700"
-                  }`}
                   disabled={manualMode && !!manualError}
+                  className={`inline-flex items-center gap-2 rounded-xl px-5 py-2 text-xs font-extrabold text-white transition-all shadow-xs ${
+                    manualMode && manualError
+                      ? "bg-slate-400 cursor-not-allowed"
+                      : "bg-emerald-800 hover:bg-emerald-900 active:scale-95"
+                  }`}
                 >
-                  {manualMode && manualError ? (
-                    <>
-                      Invalid Value(s)
-                    </>
-                  ) : (
-                    <>
-                      <i className="fa-solid fa-arrow-right text-xs" />
-                      Confirm
-                    </>
-                  )}
+                  <i className="fa-solid fa-check text-xs" />
+                  <span>Confirm Capacity</span>
                 </button>
               </div>
             </div>
           </div>
         </div>
-      }
+      )}
 
       {showConfirmation && previewData &&
         <div className="fixed inset-0 z-[240] flex items-center justify-center p-3 sm:p-6">

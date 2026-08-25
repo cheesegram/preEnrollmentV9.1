@@ -219,7 +219,7 @@ export async function updateScheduleClasses(req, res) {
 
         await Schedule.updateOne(
             { _id: id },
-            { $set: { classes } }
+            { $set: { classes, updated_at: new Date() } }
         );
 
         res.status(200).json({

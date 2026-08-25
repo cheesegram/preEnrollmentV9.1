@@ -35,6 +35,7 @@ function Dashboard() {
     const [blockPreviewData, setBlockPreviewData] = useState(null);
     const [blockImportRows, setBlockImportRows] = useState([]);
     const [isBlockEnrolling, setIsBlockEnrolling] = useState(false);
+    const [showBlockBlockedList, setShowBlockBlockedList] = useState(false);
     const [selectedSectionGroup, setSelectedSectionGroup] = useState(null);
     const [previewData, setPreviewData] = useState(null);
     const [showEnrollmentPreview, setShowEnrollmentPreview] = useState(false);
@@ -346,6 +347,7 @@ function Dashboard() {
                 placements: Array.isArray(response.data?.placements) ? response.data.placements : [],
                 blocked: Array.isArray(response.data?.blocked) ? response.data.blocked : [],
             });
+            setShowBlockBlockedList(false);
             setBlockEnrollOpen(true);
         } catch (error) {
             console.error("[Frontend] Block applicant import failed", error);
@@ -411,6 +413,7 @@ function Dashboard() {
             setBlockEnrollOpen(false);
             setBlockPreviewData(null);
             setBlockImportRows([]);
+            setShowBlockBlockedList(false);
         } catch (error) {
             console.error("Block enroll failed", error);
             toast.error(error?.response?.data?.message || "Failed to enroll block applicants");
@@ -1238,7 +1241,7 @@ function Dashboard() {
                 </div>
             </Modal>
 
-            <Modal open={blockEnrollOpen} onClose={() => { if (!isBlockEnrolling) setBlockEnrollOpen(false); }} title="Confirm Enrollment">
+            <Modal open={blockEnrollOpen} onClose={() => { if (!isBlockEnrolling) { setBlockEnrollOpen(false); setShowBlockBlockedList(false); } }} title="Confirm Enrollment">
                 <div className="flex flex-col gap-4 max-h-[70vh]">
                     <div className="shrink-0">
                         <p className="text-sm text-gray-500">

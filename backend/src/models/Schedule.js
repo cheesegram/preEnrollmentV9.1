@@ -6,6 +6,7 @@ const scheduleSchema = new mongoose.Schema({
   semester: { type: Number, required: true },    
   status: { type: String, enum: ['Draft', 'Published'], default: 'Draft' },
   generated_at: { type: Date, default: Date.now },
+  updated_at: { type: Date },
   classes: { type: Array, required: true }
 });
 

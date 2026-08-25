@@ -5,7 +5,7 @@ import { Toaster } from "react-hot-toast";
 import AppLayout from "./layouts/AppLayout";
 import AdminRoute from "./components/AdminRoute";
 import LoadingState from "./components/ui/LoadingState";
-//Wruwee
+//Hueeo
 const Login = lazy(() => import("./pages/Login.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const StudentList = lazy(() => import("./pages/StudentList.jsx"));

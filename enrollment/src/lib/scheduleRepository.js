@@ -100,6 +100,8 @@ function normalizeScheduleRows(schedules, subjectCatalog = new Map()) {
         room: classEntry.roomName ?? classEntry.roomId ?? "",
         instructor: classEntry.profName ?? classEntry.profId ?? "",
         instructorRole: "Instructor",
+        updatedAt: schedule.updated_at ?? schedule.updatedAt ?? null,
+        generatedAt: schedule.generated_at ?? null,
       };
     })
   );

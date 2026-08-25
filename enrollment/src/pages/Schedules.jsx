@@ -3,7 +3,6 @@ import toast from "react-hot-toast";
 
 import PageHeader from "../components/ui/PageHeader";
 import Panel from "../components/ui/Panel";
-import SearchInput from "../components/ui/SearchInput";
 import SelectField from "../components/ui/SelectField";
 import ActionButton from "../components/ui/ActionButton";
 import ScheduleSummaryCard from "../components/ui/ScheduleSummaryCard";
@@ -73,13 +72,11 @@ function Schedules() {
   const [filters, setFilters] = useState({ sections: [], semesters: [], schoolYears: [] });
   const [status, setStatus] = useState({ hasConflicts: false, message: "Loading schedules...", description: "Please wait while the schedule data is prepared." });
   const [conflicts, setConflicts] = useState([]);
-  const [preview, setPreview] = useState({ section: "", semester: "", schoolYear: "", lastGenerated: "", lastPublished: "" });
+  const [preview, setPreview] = useState({ section: "", semester: "", schoolYear: "" });
   const [selectedSection, setSelectedSection] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("");
   const [selectedSchoolYear, setSelectedSchoolYear] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [editingEnabled, setEditingEnabled] = useState(false);
-  const [publishedAt, setPublishedAt] = useState(null);
   const [tableOriginals, setTableOriginals] = useState({});
   const [rowDraftChanges, setRowDraftChanges] = useState({});
   const [savingChanges, setSavingChanges] = useState(false);
@@ -95,10 +92,18 @@ function Schedules() {
       setFilters(data.filters ?? { sections: [], semesters: [], schoolYears: [] });
       setStatus(data.status ?? { hasConflicts: false, message: "No Schedule Conflicts Detected", description: "All assigned schedules passed validation." });
       setConflicts(data.conflicts ?? []);
-      setPreview(data.preview ?? { section: "", semester: "", schoolYear: "", lastGenerated: "", lastPublished: "" });
+      setPreview(data.preview ?? { section: "", semester: "", schoolYear: "" });
 
       const firstRow = data.rows?.[0];
-      const initialSection = firstRow?.section ?? data.filters?.sections?.[0] ?? "";
+      const sectionOptions = Array.isArray(data.filters?.sections) ? data.filters.sections : [];
+      const firstRowSection = String(firstRow?.section ?? "");
+
+      // Default to the first dropdown option unless the first schedule row's
+      // section actually exists in the Section dropdown, so the section shown
+      // as selected always matches the schedule being displayed.
+      const initialSection = sectionOptions.includes(firstRowSection)
+        ? firstRowSection
+        : sectionOptions[0] ?? firstRowSection;
       const initialSemester = firstRow?.semester ?? data.filters?.semesters?.[0] ?? "";
       const initialSchoolYear = firstRow?.schoolYear ?? data.filters?.schoolYears?.[0] ?? "";
 
@@ -122,21 +127,31 @@ function Schedules() {
   }, []);
 
   const visibleRows = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
     return rows.filter((row) => {
       const sectionMatches = !selectedSection || String(row.section ?? "").trim() === selectedSection;
       const semesterMatches = !selectedSemester || String(row.semester ?? "").trim() === selectedSemester;
       const schoolYearMatches = !selectedSchoolYear || String(row.schoolYear ?? "").trim() === selectedSchoolYear;
-      const text = [row.subjectCode, row.subjectTitle, row.room, row.instructor, ...(Array.isArray(row.days) ? row.days : [])]
-        .join(" ")
-        .toLowerCase();
-      return sectionMatches && semesterMatches && schoolYearMatches && (!q || text.includes(q));
+      return sectionMatches && semesterMatches && schoolYearMatches;
     });
-  }, [rows, searchQuery, selectedSection, selectedSemester, selectedSchoolYear, preview]);
+  }, [rows, selectedSection, selectedSemester, selectedSchoolYear]);
 
   const filteredRowCount = visibleRows.length;
   const totalUnits = visibleRows.reduce((sum, row) => sum + Number(row.units ?? 0), 0);
   const totalWeeklyHours = visibleRows.reduce((sum, row) => sum + Math.max(1, Number(row.units ?? 0)) * (Array.isArray(row.days) ? row.days.length || 1 : 1), 0);
+
+  const lastUpdatedLabel = useMemo(() => {
+    const timestamps = visibleRows
+      .map((row) => new Date(row.updatedAt ?? row.generatedAt ?? 0).getTime())
+      .filter((time) => Number.isFinite(time) && time > 0);
+    if (timestamps.length === 0) return "";
+    return new Date(Math.max(...timestamps)).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }, [visibleRows]);
   const hasPendingChanges = Object.keys(rowDraftChanges).length > 0;
 
   const activeStatus = useMemo(() => {
@@ -252,6 +267,15 @@ function Schedules() {
         rowChanges: pendingRowPayload,
       });
 
+      // Reflect the fresh "updated_at" stamp from the backend on the local
+      // rows right away so the "Last Updated" display updates instantly.
+      const savedAt = new Date().toISOString();
+      setRows((currentRows) =>
+        currentRows.map((row) =>
+          uniqueScheduleIds.includes(row.scheduleId) ? { ...row, updatedAt: savedAt } : row
+        )
+      );
+
       const updatedReport = await fetchScheduleConflicts().catch(() => null);
       if (updatedReport) {
         setConflicts(updatedReport.conflicts ?? []);
@@ -295,22 +319,6 @@ function Schedules() {
     handleSaveChanges();
   };
 
-  const handlePublish = () => {
-    setPublishedAt(new Date().toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }));
-    setStatus({
-      hasConflicts: false,
-      message: "Schedule Published",
-      description: "The current schedule state has been marked as published in the UI shell.",
-    });
-    toast.success("Schedule published");
-  };
-
   return (
     <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
@@ -319,7 +327,7 @@ function Schedules() {
       />
 
       <Panel className="overflow-hidden">
-        <div className="grid gap-4 border-b border-slate-100 bg-white p-5 lg:grid-cols-[1.2fr_1fr_1fr_1fr]">
+        <div className="grid gap-4 border-b border-slate-100 bg-white p-5 lg:grid-cols-3">
           <SelectField
             label="Section"
             value={selectedSection}
@@ -338,15 +346,6 @@ function Schedules() {
             onChange={(event) => setSelectedSchoolYear(event.target.value)}
             options={filters.schoolYears.length ? filters.schoolYears : ["2024 - 2025"]}
           />
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-slate-700">Search</label>
-            <SearchInput
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              onClear={() => setSearchQuery("")}
-              placeholder="Search section..."
-            />
-          </div>
         </div>
       </Panel>
 
@@ -359,15 +358,9 @@ function Schedules() {
                 {selectedSemester || preview.semester || "First Semester"} • {selectedSchoolYear || preview.schoolYear || "AY 2024 - 2025"}
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Last Generated</p>
-                <p className="mt-1 font-semibold text-slate-800">{preview.lastGenerated || "Jul 20, 2025 2:31 PM"}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Last Published</p>
-                <p className="mt-1 font-semibold text-slate-800">{publishedAt || preview.lastPublished || "Jul 18, 2025 9:14 AM"}</p>
-              </div>
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm sm:min-w-[16rem]">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Last Updated</p>
+              <p className="mt-1 font-semibold text-slate-800">{lastUpdatedLabel || "—"}</p>
             </div>
           </div>
         </div>
@@ -419,10 +412,6 @@ function Schedules() {
             Cancel Edit
           </ActionButton>
         ) : null}
-        <ActionButton tone="solid" onClick={handlePublish}>
-          <i className="fa-solid fa-paper-plane" />
-          Publish Schedule
-        </ActionButton>
       </div>
     </section>
   );

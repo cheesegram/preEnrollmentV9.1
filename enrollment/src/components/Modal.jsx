@@ -9,22 +9,42 @@ const SIZE_CLASSES = {
   full: "max-w-[96rem]",
 };
 
+// Reference-counted body scroll lock. Multiple overlays can be stacked (e.g.
+// the export pickers), so the lock must only be released once the LAST
+// overlay closes — otherwise closing an inner one would restore a stale
+// "hidden" overflow value left by an overlay underneath and kill the page
+// scrollbar.
+let bodyScrollLockCount = 0;
+
+export function lockBodyScroll() {
+  bodyScrollLockCount += 1;
+  if (bodyScrollLockCount === 1) {
+    document.body.style.overflow = "hidden";
+  }
+}
+
+export function unlockBodyScroll() {
+  if (bodyScrollLockCount === 0) return;
+  bodyScrollLockCount -= 1;
+  if (bodyScrollLockCount === 0) {
+    document.body.style.overflow = "";
+  }
+}
+
 function Modal({ open, onClose, title, children, size = "xl" }) {
   const titleId = useId();
 
   useEffect(() => {
     if (!open) return undefined;
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
     const handleEscape = (event) => {
       if (event.key === "Escape") onClose();
     };
 
+    lockBodyScroll();
     window.addEventListener("keydown", handleEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockBodyScroll();
       window.removeEventListener("keydown", handleEscape);
     };
   }, [open, onClose]);

@@ -1,15 +1,5 @@
 import * as XLSX from "xlsx";
 
-const STUDENT_HEADERS = [
-  "STUDENT NUMBER",
-  "FIRST NAME",
-  "LAST NAME",
-  "YEAR",
-  "SECTION",
-  "SEMESTER",
-  "STATUS",
-];
-
 const normalizeHeader = (value) =>
   String(value ?? "")
     .trim()
@@ -33,18 +23,67 @@ function downloadBlob(blob, filename) {
   document.body.removeChild(anchor);
 }
 
+const STUDENT_KEY_ORDER = [
+  "studentNumber",
+  "firstName",
+  "middleName",
+  "lastName",
+  "suffix",
+  "year",
+  "section",
+  "semester",
+  "status",
+];
+
+function formatExportValue(value) {
+  if (value == null) return "";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return value;
+}
+
+/**
+ * Build the column list for an export as the union of every attribute found
+ * on any of the student records, so exported files contain ALL attributes and
+ * values stored in the database.  Core identity fields are placed first in a
+ * stable order; every other attribute follows in first-seen order.
+ */
+function buildStudentColumns(students) {
+  const columns = [];
+  const seen = new Set();
+
+  for (const key of STUDENT_KEY_ORDER) {
+    if (students.some((student) => student?.[key] != null)) {
+      columns.push(key);
+      seen.add(key);
+    }
+  }
+
+  for (const student of students) {
+    for (const key of Object.keys(student ?? {})) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        columns.push(key);
+      }
+    }
+  }
+
+  return columns;
+}
+
 function getStudentRows(students) {
+  const list = Array.isArray(students) ? students : [];
+  const columns = buildStudentColumns(list);
+
   return [
-    STUDENT_HEADERS,
-    ...students.map((student) => [
-      String(student.studentNumber ?? ""),
-      String(student.firstName ?? ""),
-      String(student.lastName ?? ""),
-      String(student.year ?? ""),
-      String(student.section ?? ""),
-      String(student.semester ?? ""),
-      String(student.status ?? ""),
-    ]),
+    columns,
+    ...list.map((student) => columns.map((column) => formatExportValue(student?.[column]))),
   ];
 }
 

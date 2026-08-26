@@ -2,21 +2,20 @@ import { useEffect } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
 import logo from "../assets/iitilogo.png";
 import { navigationItems } from "../config/navigation";
+import { lockBodyScroll, unlockBodyScroll } from "../components/Modal";
 
 function Sidebar({ open, onClose }) {
   useEffect(() => {
     if (!open) return undefined;
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
     const handleEscape = (event) => {
       if (event.key === "Escape") onClose();
     };
 
+    lockBodyScroll();
     window.addEventListener("keydown", handleEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockBodyScroll();
       window.removeEventListener("keydown", handleEscape);
     };
   }, [open, onClose]);
